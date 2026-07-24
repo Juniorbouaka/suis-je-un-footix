@@ -6,7 +6,7 @@ import { authenticateSocket } from './auth.js';
 import { evaluateProximity, feedbackFor, normalizeWord, validateGuess, describePlayer } from './claude.js';
 import { multiplayerScore, recordPvpResult, recordPvpDraw, readStats } from './scoring.js';
 import { evaluatePvp } from './achievements.js';
-import { isKnownPlayer } from './words.js';
+import { isKnownPlayer, randomWord } from './words.js';
 
 /* ------------------------------------------------------------------ *
  *  État en mémoire
@@ -29,11 +29,14 @@ function makeRoom(a, b) {
     id,
     createdAt: Date.now(),
     startedAt: null,
-    status: 'choosing', // choosing → playing → finished
+    status: 'playing', // playing → finished
     turn: null,
+    // Les DEUX joueurs cherchent le meme footballeur : c'est une course, et
+    // les propositions de l'un renseignent l'autre.
+    secret: randomWord().word,
     players: {
-      [a.userId]: { ...a, secret: null, guesses: [], found: false, connected: true },
-      [b.userId]: { ...b, secret: null, guesses: [], found: false, connected: true },
+      [a.userId]: { ...a, guesses: [], found: false, connected: true },
+      [b.userId]: { ...b, guesses: [], found: false, connected: true },
     },
     order: [a.userId, b.userId],
     winnerId: null,
@@ -67,7 +70,6 @@ function publicPlayer(room, userId, { reveal = false } = {}) {
     found: p.found,
     remaining: Math.max(0, config.game.maxAttemptsPvp - p.guesses.length),
     exhausted: p.guesses.length >= config.game.maxAttemptsPvp,
-    secret: reveal ? p.secret : null,
   };
 }
 
@@ -82,6 +84,8 @@ function roomState(room, { reveal = false } = {}) {
     maxAttempts: config.game.maxAttemptsPvp,
     winnerId: room.winnerId,
     endReason: room.endReason,
+    // Le joueur mystere n'est devoile qu'a la fin de la partie.
+    secret: reveal ? room.secret : null,
     players: room.order.map((id) => publicPlayer(room, id, { reveal })),
   };
 }
@@ -130,6 +134,18 @@ function startTurnTimer(io, room) {
   }, config.game.turnMs);
 }
 
+/** Donne le coup d'envoi apres le decompte affiche cote client. */
+function launchGame(io, room) {
+  setTimeout(() => {
+    const live = rooms.get(room.id);
+    if (!live || live.status !== 'playing' || live.startedAt) return;
+    live.startedAt = Date.now();
+    live.turn = live.order[Math.floor(Math.random() * 2)];
+    broadcast(io, live, 'game-start', roomState(live));
+    startTurnTimer(io, live);
+  }, 3200);
+}
+
 function pushState(io, room, options) {
   broadcast(io, room, 'state', roomState(room, options));
 }
@@ -147,15 +163,14 @@ function finishGame(io, room, { winnerId, reason }) {
   const durationMs = room.startedAt ? Date.now() - room.startedAt : 0;
 
   const [aId, bId] = room.order;
-  const a = room.players[aId];
-  const b = room.players[bId];
 
   try {
+    // Les deux colonnes portent desormais le meme joueur mystere (hache).
     db.prepare(
       `INSERT INTO multiplay_games
         (id, player_a_id, player_b_id, player_a_secret, player_b_secret, winner_id, ended_at, duration_ms)
        VALUES (?, ?, ?, ?, ?, ?, datetime('now'), ?)`
-    ).run(room.id, aId, bId, sha(a.secret || ''), sha(b.secret || ''), winnerId, durationMs);
+    ).run(room.id, aId, bId, sha(room.secret), sha(room.secret), winnerId, durationMs);
 
     const insertGuess = db.prepare(
       `INSERT INTO multiplay_guesses (game_id, player_id, word_guessed, opponent_secret_score, attempt_number)
@@ -186,9 +201,7 @@ function finishGame(io, room, { winnerId, reason }) {
     const nextStats = draw
       ? recordPvpDraw(id, { points })
       : recordPvpResult(id, { won, points });
-    const unlocked = draw
-      ? []
-      : evaluatePvp(id, { won, secretWord: room.players[opponentOf(room, id)].secret });
+    const unlocked = draw ? [] : evaluatePvp(id, { won, secretWord: room.secret });
     summary[id] = { points, won, draw, stats: nextStats, unlocked };
   }
 
@@ -199,14 +212,9 @@ function finishGame(io, room, { winnerId, reason }) {
     summary,
   });
 
-  // Les fiches des deux joueurs arrivent juste après (appel Claude, mis en cache).
-  Promise.all(room.order.map((id) => describePlayer(room.players[id].secret || '')))
-    .then(([first, second]) => {
-      broadcast(io, room, 'descriptions', {
-        [room.order[0]]: first.text,
-        [room.order[1]]: second.text,
-      });
-    })
+  // La fiche du joueur mystere arrive juste apres (appel Claude, mis en cache).
+  describePlayer(room.secret)
+    .then((sheet) => broadcast(io, room, 'descriptions', { secret: room.secret, text: sheet.text }))
     .catch(() => {});
 }
 
@@ -266,6 +274,7 @@ export function attachRealtime(httpServer) {
       socket.join(room.id);
 
       broadcast(io, room, 'match-found', { ...roomState(room), countdown: 3 });
+      launchGame(io, room);
     });
 
     socket.on('cancel-matchmaking', () => {
@@ -303,38 +312,17 @@ export function attachRealtime(httpServer) {
       io.sockets.sockets.get(pending.host.socketId)?.join(room.id);
       socket.join(room.id);
       broadcast(io, room, 'match-found', { ...roomState(room), countdown: 3 });
+      launchGame(io, room);
     });
 
     /* -------------------------- Mot secret ------------------------ */
 
-    socket.on('set-secret', async ({ word } = {}) => {
-      const room = currentRoom();
-      if (!room || room.status !== 'choosing') {
-        return socket.emit('error-message', { error: 'Aucune partie en préparation.' });
-      }
-      const check = validateGuess(word);
-      if (!check.ok) return socket.emit('error-message', { error: check.error });
-
-      // Le mot secret doit être un joueur de la banque : sans ce contrôle, on
-      // pourrait choisir « azerty » et rendre la partie impossible à gagner.
-      if (!isKnownPlayer(check.word)) {
-        return socket.emit('error-message', {
-          error: 'Choisis un footballeur connu — ce nom ne fait pas partie du jeu.',
-        });
-      }
-
-      room.players[user.id].secret = check.word;
-      socket.emit('secret-accepted', { word: check.word });
-      pushState(io, room);
-
-      const allReady = room.order.every((id) => room.players[id].secret);
-      if (allReady) {
-        room.status = 'playing';
-        room.startedAt = Date.now();
-        room.turn = room.order[Math.floor(Math.random() * 2)];
-        broadcast(io, room, 'game-start', roomState(room));
-        startTurnTimer(io, room);
-      }
+    // La phase « choisis ton mot secret » n'existe plus : les deux joueurs
+    // cherchent le meme footballeur, tire par le serveur.
+    socket.on('set-secret', () => {
+      socket.emit('error-message', {
+        error: 'Cette partie utilise un joueur mystère commun : pas de mot à choisir.',
+      });
     });
 
     /* -------------------------- Proposition ----------------------- */
@@ -363,7 +351,7 @@ export function attachRealtime(httpServer) {
       clearTurnTimer(room);
 
       const opponentId = opponentOf(room, user.id);
-      const target = room.players[opponentId].secret;
+      const target = room.secret; // le meme pour les deux joueurs
 
       const sheet = await describePlayer(target);
       const identity = sheet.usable ? sheet.text : null;

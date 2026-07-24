@@ -56,8 +56,6 @@ export default function Arena() {
   const chatRef = useRef(null);
 
   const [state, setState] = useState(null);
-  const [secret, setSecret] = useState('');
-  const [secretSent, setSecretSent] = useState(false);
   const [word, setWord] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -65,7 +63,7 @@ export default function Arena() {
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [rematchVotes, setRematchVotes] = useState([]);
-  const [bios, setBios] = useState(null);
+  const [bio, setBio] = useState(null);
   const [flash, setFlash] = useState('');
 
   const myId = user?.id;
@@ -105,14 +103,12 @@ export default function Arena() {
     const onMatch = (s) => {
       setState(s);
       setOver(null);
-      setSecret('');
-      setSecretSent(false);
       setMessages([]);
       setRematchVotes([]);
-      setBios(null);
+      setBio(null);
     };
     const onNoRoom = () => navigate('/duel');
-    const onDescriptions = (payload) => setBios(payload);
+    const onDescriptions = (payload) => setBio(payload);
     const onTimeout = ({ playerId, missed }) => {
       setFlash(
         playerId === user?.id
@@ -134,7 +130,6 @@ export default function Arena() {
     socket.on('no-room', onNoRoom);
     socket.on('descriptions', onDescriptions);
     socket.on('turn-timeout', onTimeout);
-    socket.on('secret-accepted', () => setSecretSent(true));
 
     return () => {
       socket.off('state', onState);
@@ -162,12 +157,6 @@ export default function Arena() {
   useEffect(() => {
     if (myTurn && state?.status === 'playing') inputRef.current?.focus();
   }, [myTurn, state?.status]);
-
-  const sendSecret = (e) => {
-    e.preventDefault();
-    if (!secret.trim()) return;
-    getSocket()?.emit('set-secret', { word: secret.trim() });
-  };
 
   const sendGuess = (e) => {
     e.preventDefault();
@@ -204,63 +193,6 @@ export default function Arena() {
     );
   }
 
-  /* ---------------------- Choix du mot secret ---------------------- */
-
-  if (state.status === 'choosing') {
-    return (
-      <div style={{ maxWidth: 520, margin: '0 auto' }}>
-        <div className="card">
-          <h1 style={{ fontSize: 23, marginBottom: 6 }}>Choisis ton joueur secret</h1>
-          <p className="muted small" style={{ marginBottom: 18 }}>
-            C’est le joueur que <strong>{foe?.username || 'ton adversaire'}</strong> devra deviner. Choisis-le
-            devinable — une star marche mieux qu’un inconnu.
-          </p>
-
-          {secretSent ? (
-            <div className="stack-sm center">
-              <div className="alert alert-info row" style={{ justifyContent: 'center' }}>
-                <Icon name="check" size={16} /> Joueur enregistré
-              </div>
-              <div className="spinner" style={{ marginTop: 8 }} />
-              <p className="muted small">
-                En attente de {foe?.username || 'l’adversaire'}
-                <span className="dots" />
-              </p>
-            </div>
-          ) : (
-            <form onSubmit={sendSecret} className="guess-form">
-              <input
-                className="input input-xl"
-                type="password"
-                placeholder="Ton joueur secret"
-                value={secret}
-                onChange={(e) => setSecret(e.target.value)}
-                maxLength={40}
-                autoFocus
-                autoComplete="off"
-                aria-label="Joueur secret"
-              />
-              <button className="btn btn-lg" disabled={!secret.trim()}>
-                Valider
-              </button>
-            </form>
-          )}
-
-          {error && <div className="alert alert-error" style={{ marginTop: 12 }}>{error}</div>}
-
-          <div className="row row-between small muted" style={{ marginTop: 16 }}>
-            <span>
-              {foe?.ready ? `${foe.username} est prêt` : `${foe?.username || 'Adversaire'} choisit…`}
-            </span>
-            <button className="btn-icon btn-text" onClick={leave}>
-              Quitter
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   /* --------------------------- L'arène ---------------------------- */
 
   const isDraw = over?.reason === 'draw';
@@ -272,6 +204,10 @@ export default function Arena() {
   return (
     <div>
       {iWon && <Confetti />}
+
+      <div className="center" style={{ marginBottom: 12 }}>
+        <span className="pill pill-blue">Même joueur mystère pour vous deux</span>
+      </div>
 
       <Chrono startedAt={state.startedAt} />
 
@@ -288,22 +224,9 @@ export default function Arena() {
             {over.reason === 'surrender' && 'Partie terminée par abandon. '}
             {isDraw && 'Vous avez tous les deux épuisé vos tentatives. '}
             {timedOut && 'Trois tours laissés filer : forfait. '}
-            Les joueurs étaient :
+            Le joueur mystère était
           </p>
-          <div className="row" style={{ justifyContent: 'center', gap: 18, marginTop: 10, flexWrap: 'wrap' }}>
-            <span>
-              <span className="muted small">le tien </span>
-              <strong className="result-word" style={{ fontSize: 20 }}>
-                {me?.secret}
-              </strong>
-            </span>
-            <span>
-              <span className="muted small">le sien </span>
-              <strong className="result-word" style={{ fontSize: 20 }}>
-                {foe?.secret}
-              </strong>
-            </span>
-          </div>
+          <p className="result-word">{over.secret}</p>
 
           {over.summary?.[myId] && (
             <p className="pill pill-green" style={{ marginTop: 16 }}>
@@ -311,18 +234,10 @@ export default function Arena() {
             </p>
           )}
 
-          {bios && (
-            <div className="stack-sm" style={{ marginTop: 16 }}>
-              {[me, foe].map(
-                (p) =>
-                  p &&
-                  bios[p.userId] && (
-                    <div key={p.userId} className="bio">
-                      <span className="bio-label">{p.secret}</span>
-                      {bios[p.userId]}
-                    </div>
-                  )
-              )}
+          {bio && (
+            <div className="bio" style={{ marginTop: 16 }}>
+              <span className="bio-label">Qui est-ce ?</span>
+              {bio.text}
             </div>
           )}
 
@@ -370,7 +285,7 @@ export default function Arena() {
               <input
                 ref={inputRef}
                 className="input"
-                placeholder={myTurn ? 'Un mot, un club, un joueur…' : 'Attends ton tour'}
+                placeholder={myTurn ? 'Un mot, un club, un joueur…' : 'Observe et prépare ton coup'}
                 value={word}
                 onChange={(e) => setWord(e.target.value)}
                 disabled={!myTurn || busy}

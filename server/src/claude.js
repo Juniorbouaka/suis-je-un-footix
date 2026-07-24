@@ -51,10 +51,12 @@ export function validateGuess(raw) {
   const word = String(raw || '').trim();
   if (!word) return { ok: false, error: 'Entre un mot.' };
   if (word.length > 40) return { ok: false, error: 'Mot trop long (40 caractères max).' };
-  if (!/^[\p{L}\p{M}'\- ]+$/u.test(word)) {
-    return { ok: false, error: 'Lettres, tirets et apostrophes uniquement.' };
+  // Les chiffres sont acceptes : « annees 2000 », « coupe du monde 1998 »,
+  // « numero 10 » sont des mots-cles legitimes.
+  if (!/^[\p{L}\p{M}\p{N}'\- ]+$/u.test(word)) {
+    return { ok: false, error: 'Lettres, chiffres, tirets et apostrophes uniquement.' };
   }
-  if (word.split(/\s+/).length > 3) return { ok: false, error: 'Trois mots maximum.' };
+  if (word.split(/\s+/).length > 4) return { ok: false, error: 'Quatre mots maximum.' };
   if (isOffensive(word)) return { ok: false, error: 'Ce mot n’est pas accepté.' };
   return { ok: true, word };
 }
