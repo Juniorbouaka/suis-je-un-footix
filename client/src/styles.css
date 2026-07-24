@@ -1388,31 +1388,242 @@ a:hover {
 
 /* --------------------------- responsive ------------------------- */
 
+@media (max-width: 900px) {
+  .container,
+  .container-wide {
+    padding: 0 16px;
+  }
+}
+
+/* ------------------------- tablette / grand mobile ------------------------ */
+
 @media (max-width: 720px) {
   .arena {
     grid-template-columns: 1fr;
   }
+  main {
+    padding: 18px 0 44px;
+  }
+  .card {
+    padding: 20px;
+    border-radius: 20px;
+  }
+  .hero {
+    padding: 26px 0 20px;
+  }
+  .hero h1 {
+    font-size: clamp(30px, 9.5vw, 48px);
+  }
+  .hero p {
+    font-size: 15.5px;
+  }
+  .gauge-value {
+    font-size: 38px;
+  }
+  .countdown-clock {
+    font-size: 26px;
+  }
+  .countdown-card {
+    padding: 16px 18px;
+    gap: 12px;
+  }
+
+  /* La navigation defile horizontalement plutot que de deborder. */
+  .header-inner {
+    height: 58px;
+    gap: 10px;
+  }
+  .nav {
+    gap: 2px;
+    /* min-width: 0 est indispensable : sans lui, un element flex refuse de
+       retrecir sous la largeur de son contenu et le defilement ne s'active
+       jamais — la barre deborde de l'ecran. */
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    mask-image: linear-gradient(90deg, #000 calc(100% - 18px), transparent);
+  }
+  .brand {
+    flex-shrink: 0;
+  }
+  .nav::-webkit-scrollbar {
+    display: none;
+  }
   .nav-link {
-    padding: 7px 9px;
+    padding: 7px 10px;
     font-size: 13px;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
   .brand-name {
     display: none;
   }
-  .gauge-value {
-    font-size: 40px;
+  .btn-icon {
+    flex-shrink: 0;
   }
-  main {
-    padding: 20px 0 50px;
+  .nav .btn {
+    padding: 9px 14px;
+    font-size: 14px;
+    flex-shrink: 0;
   }
-  .card {
-    padding: 21px;
+}
+
+/* ------------------------------ mobile ------------------------------ */
+
+@media (max-width: 560px) {
+  /* Champ et bouton empiles : sur un telephone, un bouton colle a droite
+     reduit le champ a rien et rend la saisie penible. */
+  .guess-form {
+    flex-direction: column;
   }
-  .hero {
-    padding: 32px 0 24px;
+  .guess-form .btn {
+    width: 100%;
   }
-  .countdown-clock {
+
+  .input-xl {
+    font-size: 17px;
+    padding: 15px 16px;
+  }
+
+  /* La barre de progression disparait : le score chiffre suffit et laisse
+     toute la place au nom propose. */
+  .guess-row {
+    grid-template-columns: 30px 1fr 44px;
+    padding: 11px;
+    gap: 8px;
+  }
+  .guess-bar {
+    display: none;
+  }
+  .guess-row:hover {
+    transform: none;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .stat {
+    padding: 13px 10px;
+  }
+  .stat-value {
+    font-size: 22px;
+  }
+  .stat-label {
+    font-size: 11.5px;
+  }
+
+  .badge-grid,
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-actions {
+    flex-direction: column;
+  }
+  .hero-actions .btn {
+    width: 100%;
+  }
+
+  .archive-row {
+    grid-template-columns: 46px 1fr;
+    row-gap: 6px;
+  }
+  .archive-row > span:last-child {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .table th,
+  .table td {
+    padding: 10px 6px;
+    font-size: 13.5px;
+  }
+  .table th:last-child,
+  .table td:last-child {
+    display: none; /* colonne « parties » sacrifiee, la moins utile */
+  }
+
+  .modal {
+    padding: 22px;
+  }
+  .arena-side {
+    padding: 16px;
+  }
+  .chrono {
+    font-size: 22px;
+    padding: 10px;
+  }
+  .turn-banner {
+    font-size: 13.5px;
+    padding: 10px 12px;
+  }
+  .result-word {
+    font-size: 26px;
+  }
+  .result-icon {
+    width: 64px;
+    height: 64px;
+  }
+  .consent-inner {
+    padding: 12px 16px;
+    gap: 10px;
+  }
+  .consent-inner .row {
+    width: 100%;
+  }
+  .consent-inner .btn {
+    flex: 1;
+  }
+}
+
+/* --------------------------- petits telephones --------------------------- */
+
+@media (max-width: 380px) {
+  .hero h1 {
     font-size: 27px;
+  }
+  .gauge-value {
+    font-size: 32px;
+  }
+  .gauge-label {
+    font-size: 14px;
+  }
+  .stat-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .nav-link {
+    padding: 6px 8px;
+    font-size: 12.5px;
+  }
+}
+
+/* Zone sure des telephones a encoche */
+@supports (padding: max(0px)) {
+  .container,
+  .container-wide {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+  }
+  .consent {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Sur ecran tactile, les effets de survol collent au doigt : on les coupe. */
+@media (hover: none) {
+  .card-float {
+    animation: rise-in 0.55s var(--ease) both;
+  }
+  .stat:hover,
+  .feature:hover,
+  .badge.earned:hover,
+  .guess-row:hover {
+    transform: none;
+  }
+  .btn:hover:not(:disabled) {
+    transform: none;
   }
 }
 
