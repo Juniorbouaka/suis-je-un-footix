@@ -1,0 +1,56 @@
+name: Vérifications
+
+# Tourne à chaque envoi de code sur GitHub : si quelque chose casse,
+# tu le vois avant que ça parte en production.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verifier:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Installer les dépendances
+        run: |
+          npm --prefix server ci
+          npm --prefix client ci
+
+      - name: Vérifier la syntaxe du serveur
+        run: |
+          for f in $(find server/src -name '*.js'); do
+            node --check "$f" || exit 1
+          done
+
+      - name: Valider la banque de joueurs
+        run: npm --prefix server run check:bank
+
+      - name: Compiler le front
+        run: npm --prefix client run build
+
+      - name: Démarrer le serveur et vérifier qu'il répond
+        env:
+          NODE_ENV: production
+          JWT_SECRET: ci-secret-uniquement-pour-les-tests-000000
+          JWT_REFRESH_SECRET: ci-refresh-uniquement-pour-les-tests-000
+          DATABASE_FILE: ./ci-footix.db
+          BACKUP_INTERVAL_MS: '0'
+        run: |
+          node server/src/index.js &
+          for i in $(seq 1 20); do
+            sleep 1
+            if curl -sf http://localhost:4000/api/health > /dev/null; then
+              echo "Le serveur répond :"
+              curl -s http://localhost:4000/api/health
+              exit 0
+            fi
+          done
+          echo "Le serveur n'a pas démarré à temps"
+          exit 1

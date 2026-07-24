@@ -1,0 +1,155 @@
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
+import { config, isProd } from './config.js';
+import './db.js';
+import { authRouter } from './routes/auth.routes.js';
+import { gameRouter } from './routes/game.routes.js';
+import { leaderboardRouter } from './routes/leaderboard.routes.js';
+import { attachRealtime, onlineCount } from './realtime.js';
+import { getDailyWord, todayUtc } from './words.js';
+import { claudeEnabled } from './claude.js';
+import { budgetStatus } from './budget.js';
+import { scheduleBackups } from './backup.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(express.json({ limit: '64kb' }));
+
+// CORS uniquement si le front est servi depuis une autre origine (mode dev).
+// En production le front est servi par ce même serveur : aucune requête
+// cross-origin, donc pas de CORS à ouvrir.
+if (config.clientOrigin.length) {
+  app.use(cors({ origin: config.clientOrigin, credentials: true }));
+}
+
+// Garde-fou global
+app.use(
+  '/api',
+  rateLimit({
+    windowMs: 60 * 1000,
+    limit: 300,
+    standardHeaders: 'draft-7',
+    legacyHeaders: false,
+  })
+);
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    ok: true,
+    engine: claudeEnabled ? 'claude' : 'fallback',
+    model: config.claude.model,
+    date: todayUtc(),
+    online: onlineCount(io),
+    budget: budgetStatus(),
+    uptime: Math.round(process.uptime()),
+  });
+});
+
+app.use('/api/auth', authRouter);
+app.use('/api', gameRouter);
+app.use('/api', leaderboardRouter);
+
+app.use('/api', (req, res) => res.status(404).json({ error: 'Route introuvable.' }));
+
+/* ------------------------------------------------------------------ *
+ *  Front en production : ce serveur sert aussi les fichiers statiques.
+ *  Une seule origine, donc plus aucune question de CORS.
+ * ------------------------------------------------------------------ */
+
+const CLIENT_DIST = process.env.CLIENT_DIST
+  ? path.resolve(process.env.CLIENT_DIST)
+  : path.resolve(here, '../../client/dist');
+
+const hasBuild = fs.existsSync(path.join(CLIENT_DIST, 'index.html'));
+
+if (hasBuild) {
+  // Les assets portent un hash dans leur nom : cache long sans risque.
+  app.use(
+    express.static(CLIENT_DIST, {
+      index: false,
+      maxAge: '365d',
+      setHeaders: (res, filePath) => {
+        if (filePath.endsWith('index.html')) res.setHeader('Cache-Control', 'no-cache');
+      },
+    })
+  );
+
+  // Application monopage : toute autre route renvoie index.html.
+  app.get('*', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(CLIENT_DIST, 'index.html'));
+  });
+} else if (isProd) {
+  console.warn(
+    `\n  ⚠ Aucun build du front trouvé dans ${CLIENT_DIST}\n` +
+      `    Lance « npm run build » dans client/ avant de démarrer en production.\n`
+  );
+}
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('[api]', err);
+  res.status(500).json({ error: 'Erreur interne du serveur.' });
+});
+
+const server = http.createServer(app);
+const io = attachRealtime(server);
+
+// Prépare le joueur du jour au démarrage (jamais exposé).
+getDailyWord();
+
+// Sauvegarde au démarrage puis toutes les 24 h.
+scheduleBackups();
+
+/* ------------------------------------------------------------------ *
+ *  Garde-fous de démarrage : mieux vaut refuser de démarrer que de
+ *  tourner en production avec les secrets de la démo.
+ * ------------------------------------------------------------------ */
+
+const DEMO_SECRETS = ['change-me-access-secret', 'change-me-refresh-secret'];
+const usesDemoSecrets =
+  DEMO_SECRETS.includes(config.jwt.accessSecret) ||
+  DEMO_SECRETS.includes(config.jwt.refreshSecret) ||
+  config.jwt.accessSecret.startsWith('dev-') ||
+  config.jwt.refreshSecret.startsWith('dev-');
+
+if (isProd && usesDemoSecrets) {
+  console.error(
+    `\n  ⨯ REFUS DE DÉMARRER : les secrets JWT sont ceux de la démo.\n` +
+      `    Génère-les avec « npm run secrets » puis renseigne JWT_SECRET\n` +
+      `    et JWT_REFRESH_SECRET dans les variables d'environnement.\n`
+  );
+  process.exit(1);
+}
+
+server.listen(config.port, () => {
+  console.log(`\n  Suis-je un footix ? — serveur prêt`);
+  console.log(`  → http://localhost:${config.port}`);
+  console.log(`  → front : ${hasBuild ? 'servi depuis ' + CLIENT_DIST : 'non servi (mode dev : lance Vite)'}`);
+  console.log(
+    `  → évaluation : ${claudeEnabled ? 'Claude (' + config.claude.model + ')' : 'secours local (aucune clé ANTHROPIC_API_KEY)'}`
+  );
+  console.log(`  → base : ${config.databaseFile}`);
+  if (!isProd && usesDemoSecrets) {
+    console.log(`  → ⚠ secrets JWT de démo : à remplacer avant toute mise en ligne`);
+  }
+  console.log(`  → joueur du jour : ${todayUtc()} (secret côté serveur)\n`);
+});
+
+/* Arrêt propre : l'hébergeur envoie SIGTERM à chaque redéploiement. */
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    console.log(`\n  ${signal} reçu — arrêt en cours…`);
+    io.close();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 5000);
+  });
+}

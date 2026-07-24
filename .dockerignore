@@ -1,0 +1,13 @@
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+server/data
+client/dist
+client/.vite
+.git
+.gitignore
+*.md
+!README.md
+Cematix_Cahier_Charges.docx
+.claude

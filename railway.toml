@@ -1,0 +1,19 @@
+# Configuration Railway — https://docs.railway.com/reference/config-as-code
+#
+# Le volume est indispensable : sans lui, la base SQLite est effacée
+# a chaque redeploiement (comptes, scores, series, cache).
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "node server/src/index.js"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
+
+# Une seule instance : l'etat du matchmaking et des duels vit en memoire.
+# Passer a plusieurs instances demanderait un adaptateur Redis pour Socket.io.
+numReplicas = 1

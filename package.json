@@ -1,0 +1,19 @@
+{
+  "name": "suis-je-un-footix",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Suis-je un footix ? — jeu de proximite semantique sur le football",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "start": "node server/src/index.js",
+    "secrets": "npm --prefix server run secrets",
+    "check:bank": "npm --prefix server run check:bank",
+    "test:duel": "npm --prefix server run test:duel"
+  }
+}

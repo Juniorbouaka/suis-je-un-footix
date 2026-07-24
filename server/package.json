@@ -1,0 +1,33 @@
+{
+  "name": "footix-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Suis-je un footix ? — API + WebSocket server",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "seed": "node src/scripts/seed.js",
+    "test:duel": "node tests/duel.e2e.mjs",
+    "check:bank": "node tests/bank.check.mjs",
+    "secrets": "node scripts/generate-secrets.mjs",
+    "start:prod": "node src/index.js",
+    "backup": "node -e \"import('./src/backup.js').then(m=>m.runBackup())\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}

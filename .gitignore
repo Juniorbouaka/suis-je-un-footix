@@ -1,0 +1,22 @@
+# Secrets — ne JAMAIS committer : contient ta clé API
+.env
+*.env
+!.env.example
+
+# Dépendances
+node_modules/
+
+# Base de données locale
+server/data/
+
+# Build
+client/dist/
+client/.vite/
+
+# Divers
+.DS_Store
+*.log
+npm-debug.log*
+
+# Reglages locaux de l'editeur
+.claude/
