@@ -9,8 +9,10 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "node server/src/index.js"
-healthcheckPath = "/api/health"
-healthcheckTimeout = 120
+# Healthcheck volontairement desactive : Railway refusait de router le trafic
+# et masquait l'erreur reelle. La politique de redemarrage suffit a relancer
+# le conteneur s'il tombe. A reactiver une fois le service stabilise :
+#   healthcheckPath = "/api/health"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 5
 

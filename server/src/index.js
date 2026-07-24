@@ -16,6 +16,12 @@ import { claudeEnabled } from './claude.js';
 import { budgetStatus } from './budget.js';
 import { scheduleBackups } from './backup.js';
 
+console.log(
+  `[demarrage] node ${process.version} | NODE_ENV=${process.env.NODE_ENV} | ` +
+    `PORT=${process.env.PORT} | DATABASE_FILE=${process.env.DATABASE_FILE} | ` +
+    `cle Claude=${process.env.ANTHROPIC_API_KEY ? 'oui' : 'non'}`
+);
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
@@ -130,7 +136,7 @@ if (isProd && usesDemoSecrets) {
   process.exit(1);
 }
 
-server.listen(config.port, () => {
+server.listen(config.port, '0.0.0.0', () => {
   console.log(`\n  Suis-je un footix ? — serveur prêt`);
   console.log(`  → http://localhost:${config.port}`);
   console.log(`  → front : ${hasBuild ? 'servi depuis ' + CLIENT_DIST : 'non servi (mode dev : lance Vite)'}`);
@@ -142,6 +148,14 @@ server.listen(config.port, () => {
     console.log(`  → ⚠ secrets JWT de démo : à remplacer avant toute mise en ligne`);
   }
   console.log(`  → joueur du jour : ${todayUtc()} (secret côté serveur)\n`);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[fatal] exception non rattrapée :', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[fatal] promesse rejetée :', err);
 });
 
 /* Arrêt propre : l'hébergeur envoie SIGTERM à chaque redéploiement. */
