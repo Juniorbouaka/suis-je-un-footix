@@ -186,6 +186,24 @@ CREATE TABLE IF NOT EXISTS archive_guesses (
 );
 CREATE INDEX IF NOT EXISTS idx_archive_guesses_user_date ON archive_guesses(user_id, date);
 
+/*
+ * Dons.
+ *
+ * Le don est anonyme par défaut et ne demande aucun compte : user_id reste
+ * nul pour un visiteur de passage. On ne conserve ni e-mail ni coordonnées
+ * — PayPal encaisse, nous ne gardons que la trace comptable, et l'identifiant
+ * de commande sert d'idempotence si le visiteur recharge la page de retour.
+ */
+CREATE TABLE IF NOT EXISTS donations (
+  order_id    TEXT PRIMARY KEY,
+  user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+  amount      TEXT NOT NULL,
+  currency    TEXT NOT NULL DEFAULT 'EUR',
+  status      TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  captured_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS archive_results (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

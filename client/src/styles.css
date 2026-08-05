@@ -2293,3 +2293,87 @@ a:hover {
     display: none; /* la base légale, la moins utile sur petit écran */
   }
 }
+
+/* ============================ DONS ================================= */
+
+.don-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 999px;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
+}
+
+.don-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 10px;
+}
+
+.don-choix {
+  padding: 16px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1.5px solid transparent;
+  color: inherit;
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: all 0.18s var(--ease);
+}
+
+.don-choix:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+}
+
+.don-choix.active {
+  border-color: var(--green-neon);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+}
+
+:root[data-theme='dark'] .don-choix.active {
+  color: var(--green-neon);
+}
+
+/* Champ de montant libre : la devise est posée dans le champ, à droite. */
+.don-libre {
+  position: relative;
+}
+
+.don-libre .input {
+  padding-right: 34px;
+}
+
+.don-devise {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  pointer-events: none;
+}
+
+.don-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 16px;
+  padding: 13px 15px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+  line-height: 1.55;
+}
+
+.don-note .icon {
+  flex: none;
+  margin-top: 3px;
+  color: var(--green-neon);
+}

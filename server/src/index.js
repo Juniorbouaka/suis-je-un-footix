@@ -12,6 +12,7 @@ import { gameRouter } from './routes/game.routes.js';
 import { leaderboardRouter } from './routes/leaderboard.routes.js';
 import { billingRouter, billingWebhook } from './routes/billing.routes.js';
 import { archiveRouter } from './routes/archive.routes.js';
+import { donateRouter } from './routes/donate.routes.js';
 import { attachRealtime, onlineCount } from './realtime.js';
 import { getDailyWord, todayUtc } from './words.js';
 import { claudeEnabled } from './claude.js';
@@ -76,6 +77,7 @@ app.get('/api/health', (req, res) => {
 
 app.use('/api/auth', authRouter);
 app.use('/api/billing', billingRouter);
+app.use('/api/donate', donateRouter);
 app.use('/api', archiveRouter);
 app.use('/api', gameRouter);
 app.use('/api', leaderboardRouter);

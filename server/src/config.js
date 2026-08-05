@@ -98,9 +98,28 @@ export const config = {
     currency: 'EUR',
   },
 
-  // Lien de don affiché dans le pied de page (ex. « paypal.me/monpseudo »).
-  // Vide = aucun lien affiché. On n'expose jamais d'adresse e-mail ici :
-  // une adresse en clair sur une page publique est aspirée par les robots.
+  /*
+   * Dons.
+   *
+   * Encaissés par l'API PayPal avec les mêmes identifiants que l'abonnement :
+   * l'argent va au compte propriétaire de l'application. Aucune adresse
+   * e-mail n'apparaît donc côté client — une adresse en clair sur une page
+   * publique est aspirée par les robots en quelques jours.
+   *
+   * Les montants proposés sont bornés côté serveur : le client ne décide
+   * jamais seul de ce qui est facturé.
+   */
+  donations: {
+    amounts: (process.env.DONATION_AMOUNTS || '2,5,10,20')
+      .split(',')
+      .map((n) => Number(n.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0),
+    min: Number(process.env.DONATION_MIN || 1),
+    max: Number(process.env.DONATION_MAX || 500),
+  },
+
+  // Lien de don externe, si tu préfères une page tierce (Ko-fi, PayPal.me).
+  // Vide = on utilise la page de soutien intégrée.
   donateUrl: process.env.DONATE_URL || '',
 };
 

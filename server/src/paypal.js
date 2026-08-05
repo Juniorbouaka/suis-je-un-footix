@@ -131,6 +131,53 @@ export function cancelSubscription(subscriptionId, reason = 'Résiliation demand
 }
 
 /* ------------------------------------------------------------------ *
+ *  Dons — commandes ponctuelles
+ * ------------------------------------------------------------------ */
+
+/**
+ * Ouvre une commande et renvoie le lien de paiement.
+ *
+ * Contrairement aux abonnements, on ne restreint pas le moyen de paiement :
+ * PayPal propose alors aussi la carte bancaire sans compte, ce qui compte
+ * pour un don — beaucoup de gens n'ont pas de compte PayPal.
+ *
+ * Le bénéficiaire n'est pas transmis : l'argent va au compte propriétaire
+ * des identifiants d'API. Aucune adresse e-mail ne circule.
+ */
+export async function createDonationOrder({ amount, currency = 'EUR', returnUrl, cancelUrl }) {
+  const order = await paypalRequest('POST', '/v2/checkout/orders', {
+    intent: 'CAPTURE',
+    purchase_units: [
+      {
+        amount: { currency_code: currency, value: amount },
+        description: 'Soutien au jeu Suis-je un footix ?',
+      },
+    ],
+    application_context: {
+      brand_name: 'Suis-je un footix ?',
+      locale: 'fr-FR',
+      shipping_preference: 'NO_SHIPPING',
+      user_action: 'PAY_NOW',
+      return_url: returnUrl,
+      cancel_url: cancelUrl,
+    },
+  });
+
+  const approve = (order.links || []).find((l) => l.rel === 'approve');
+  if (!approve) throw new Error("PayPal n'a pas renvoyé de lien de paiement.");
+
+  return { id: order.id, status: order.status, approveUrl: approve.href };
+}
+
+export function getOrder(orderId) {
+  return paypalRequest('GET', `/v2/checkout/orders/${encodeURIComponent(orderId)}`);
+}
+
+export function captureOrder(orderId) {
+  return paypalRequest('POST', `/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {});
+}
+
+/* ------------------------------------------------------------------ *
  *  Vérification des webhooks
  * ------------------------------------------------------------------ */
 

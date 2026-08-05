@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../lib/auth.jsx';
 import { useTheme } from '../lib/theme.jsx';
 import { closeSocket } from '../lib/socket.js';
-import { api } from '../lib/api.js';
 import AuthModal from './AuthModal.jsx';
 import Icon from './Icon.jsx';
 import PremiumBadge from './PremiumBadge.jsx';
@@ -24,14 +22,6 @@ export default function Layout({ children }) {
   useEffect(() => {
     document.documentElement.dataset.pitch = pitch;
   }, [pitch]);
-
-  // Sert au lien de don du pied de page ; la réponse est publique et mise
-  // en cache par react-query, donc une seule requête par session.
-  const { data: offer } = useQuery({
-    queryKey: ['billing-offer'],
-    queryFn: async () => (await api.get('/billing/offer')).data,
-    staleTime: 5 * 60_000,
-  });
 
   const signOut = async () => {
     closeSocket();
@@ -119,11 +109,9 @@ export default function Layout({ children }) {
             <Link to="/mentions-legales">Mentions légales</Link>
             <Link to="/confidentialite">Confidentialité</Link>
             <Link to="/cookies">Cookies</Link>
-            {offer?.donateUrl && (
-              <a href={offer.donateUrl} target="_blank" rel="noreferrer noopener">
-                <Icon name="heart" size={12} /> Soutenir le jeu
-              </a>
-            )}
+            <Link to="/soutenir">
+              <Icon name="heart" size={12} /> Soutenir le jeu
+            </Link>
           </nav>
         </div>
       </footer>

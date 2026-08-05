@@ -10,6 +10,8 @@ import Profile from './pages/Profile.jsx';
 import Archive from './pages/Archive.jsx';
 import ArchiveGame from './pages/ArchiveGame.jsx';
 import Premium from './pages/Premium.jsx';
+import Support from './pages/Support.jsx';
+import SupportThanks from './pages/SupportThanks.jsx';
 import PremiumThanks from './pages/PremiumThanks.jsx';
 import { MentionsLegales, Confidentialite, Cookies } from './pages/Legal.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
@@ -79,6 +81,10 @@ export default function App() {
             </Protected>
           }
         />
+
+        {/* Le soutien est ouvert a tous : aucun compte demande. */}
+        <Route path="/soutenir" element={<Support />} />
+        <Route path="/soutenir/merci" element={<SupportThanks />} />
 
         <Route path="/mentions-legales" element={<MentionsLegales />} />
         <Route path="/confidentialite" element={<Confidentialite />} />
