@@ -53,6 +53,15 @@ const METRICS = [
 function Chart({ series, metric }) {
   const max = Math.max(1, ...series.map((d) => d[metric]));
 
+  // Une série entièrement nulle ne mérite pas 190 px de vide : on le dit.
+  if (!series.some((d) => d[metric])) {
+    return (
+      <p className="muted small center" style={{ padding: '60px 0' }}>
+        Rien à afficher sur la période — le compteur démarre à la première donnée.
+      </p>
+    );
+  }
+
   return (
     <>
       <div className="chart" role="img" aria-label={`Évolution — ${metric}`}>
