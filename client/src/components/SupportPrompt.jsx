@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth.jsx';
 import Icon from './Icon.jsx';
 
 /**
- * Invitation à soutenir le jeu, affichée après une réussite.
+ * Invitation à soutenir le jeu, affichée en fin de partie.
  *
  * Tout l'enjeu est de ne pas devenir une bannière publicitaire. Quatre
  * règles s'en chargent, et elles comptent plus que le graphisme :
@@ -16,10 +16,10 @@ import Icon from './Icon.jsx';
  *   4. une fois par semaine au maximum, et après trois refus on espace
  *      à trente jours. Qui ne veut pas donner ne veut pas donner.
  *
- * On ne l'affiche jamais après un échec ou une défaite : demander de
- * l'argent à quelqu'un qui vient de perdre est le meilleur moyen de le
- * braquer. C'est à l'appelant de ne monter ce composant qu'après une
- * issue heureuse.
+ * Elle apparaît quelle que soit l'issue, mais le TEXTE et le TON changent :
+ * après un échec on ne félicite pas et on ne réclame pas — voir
+ * `messagePour`. C'est ce qui évite qu'une déception se transforme en
+ * agacement.
  */
 
 const CLE = 'footix.support';
@@ -62,8 +62,21 @@ function autorise({ isPremium, partiesJouees }) {
   return true;
 }
 
-/** Le message se cale sur ce que le joueur vient de vivre. */
-function messagePour(contexte, serie) {
+/**
+ * Le message se cale sur ce que le joueur vient de vivre.
+ *
+ * Après un échec, on ne félicite pas et on ne réclame pas : on constate,
+ * on renvoie vers la partie suivante, et on mentionne le coût sans
+ * insister. Le même texte qu'après une victoire sonnerait faux — et
+ * transformerait une déception en agacement.
+ */
+function messagePour(contexte, serie, issue) {
+  if (issue === 'perdu') {
+    return contexte === 'duel'
+      ? 'Ça se joue à peu de chose. La revanche est juste au-dessus — et chaque proposition évaluée coûte quelques centimes d’IA.'
+      : 'Pas cette fois. Un nouveau joueur mystère arrive à minuit — et chaque proposition évaluée coûte quelques centimes d’IA.';
+  }
+
   if (serie >= 30) {
     return `${serie} jours d'affilée. À ce stade tu fais partie des habitués — et les habitués font vivre le jeu.`;
   }
@@ -76,7 +89,7 @@ function messagePour(contexte, serie) {
   return 'Content que ça te plaise. Chaque proposition évaluée coûte quelques centimes — le jeu tient grâce à ceux qui donnent.';
 }
 
-export default function SupportPrompt({ contexte = 'solo', serie = 0 }) {
+export default function SupportPrompt({ contexte = 'solo', serie = 0, issue = 'gagne' }) {
   const { isPremium, stats } = useAuth();
   const partiesJouees = stats?.daysCompleted ?? 0;
 
@@ -99,13 +112,13 @@ export default function SupportPrompt({ contexte = 'solo', serie = 0 }) {
   };
 
   return (
-    <div className="support-prompt">
+    <div className={`support-prompt${issue === 'perdu' ? ' sobre' : ''}`}>
       <span className="support-prompt-icon">
         <Icon name="heart" size={17} />
       </span>
 
       <div className="grow">
-        <p className="support-prompt-text">{messagePour(contexte, serie)}</p>
+        <p className="support-prompt-text">{messagePour(contexte, serie, issue)}</p>
         <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
           <Link to="/soutenir" className="btn btn-sm">
             Soutenir le jeu

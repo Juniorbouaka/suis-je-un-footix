@@ -217,11 +217,13 @@ export default function Solo() {
             maxAttempts={data?.maxAttempts || 50}
           />
 
-          {/* Uniquement apres une victoire : demander a quelqu'un qui vient
-              d'echouer ou d'abandonner ne ferait que le braquer. */}
-          {result.outcome === 'found' && (
-            <SupportPrompt contexte="solo" serie={stats?.currentStreak ?? 0} />
-          )}
+          {/* Affiche quelle que soit l'issue, mais le TEXTE change : apres un
+              echec on ne felicite pas et on ne reclame pas, on constate. */}
+          <SupportPrompt
+            contexte="solo"
+            serie={stats?.currentStreak ?? 0}
+            issue={result.outcome === 'found' ? 'gagne' : 'perdu'}
+          />
 
           <AdSlot slot="1234567890" />
 

@@ -2455,3 +2455,16 @@ a:hover {
   background: var(--surface-2);
   border: 1px dashed var(--border-strong);
 }
+
+/* Variante sobre : apres un echec, le rouge « coeur » serait deplace.
+   Le fond neutre laisse l'encart present sans qu'il celebre quoi que ce
+   soit. */
+.support-prompt.sobre {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.support-prompt.sobre .support-prompt-icon {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}

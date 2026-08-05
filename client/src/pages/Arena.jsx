@@ -244,8 +244,8 @@ export default function Arena() {
             </div>
           )}
 
-          {/* Victoire ou match nul seulement. Apres une defaite, on se tait. */}
-          {(iWon || isDraw) && <SupportPrompt contexte="duel" />}
+          {/* Affiche quelle que soit l'issue, avec un texte adapte. */}
+          <SupportPrompt contexte="duel" issue={iWon || isDraw ? 'gagne' : 'perdu'} />
 
           <div className="row wrap" style={{ marginTop: 20, gap: 10, justifyContent: 'center' }}>
             <button className="btn" onClick={() => getSocket()?.emit('rematch')}>
