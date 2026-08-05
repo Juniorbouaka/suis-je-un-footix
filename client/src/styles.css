@@ -2413,3 +2413,45 @@ a:hover {
   line-height: 1.5;
   color: var(--text-muted);
 }
+
+/* --------------------- soutiens : badge et mur --------------------- */
+
+.supporter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--red);
+  flex: none;
+}
+
+.wall {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Aucun ordre de merite : meme taille pour tous, montants jamais affiches. */
+.wall-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 13.5px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 20%, transparent);
+}
+
+.wall-date {
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.signature {
+  padding: 15px;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+}

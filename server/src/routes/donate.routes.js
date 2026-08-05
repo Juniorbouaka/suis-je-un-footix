@@ -3,6 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { db } from '../db.js';
 import { config } from '../config.js';
 import { verifyAccessToken } from '../auth.js';
+import { mur, validerNom } from '../supporters.js';
 import {
   captureOrder,
   createDonationOrder,
@@ -155,4 +156,50 @@ donateRouter.get('/stats', (req, res) => {
     .get();
   // On publie le nombre de soutiens, jamais les montants ni les donateurs.
   res.json({ supporters: row.n });
+});
+
+/* -------------------------------------------------------------- *
+ *  GET /api/donate/wall — le mur des soutiens
+ * -------------------------------------------------------------- */
+
+donateRouter.get('/wall', (req, res) => {
+  res.json({ names: mur() });
+});
+
+/* -------------------------------------------------------------- *
+ *  POST /api/donate/:orderId/name — signer le mur
+ *
+ *  L'identifiant de commande fait office de preuve : seul celui qui
+ *  revient de PayPal le connaît. Le nom ne peut être posé qu'une fois,
+ *  pour qu'on ne puisse pas réécrire le mur indéfiniment.
+ * -------------------------------------------------------------- */
+
+donateRouter.post('/:orderId/name', limiter, (req, res) => {
+  const orderId = String(req.params.orderId || '').trim();
+  const don = db.prepare('SELECT * FROM donations WHERE order_id = ?').get(orderId);
+
+  if (!don) return res.status(404).json({ error: 'Don introuvable.' });
+  if (don.status !== 'COMPLETED') {
+    return res.status(409).json({ error: "Ce don n'est pas encore encaissé." });
+  }
+  if (don.display_name) {
+    return res.status(409).json({ error: 'Ce don a déjà signé le mur.' });
+  }
+
+  // Publication expressément demandée : par défaut, un don reste anonyme.
+  const public_ = req.body?.public === true;
+  if (!public_) {
+    db.prepare('UPDATE donations SET is_public = 0 WHERE order_id = ?').run(orderId);
+    return res.json({ ok: true, published: false });
+  }
+
+  const check = validerNom(req.body?.name);
+  if (!check.ok) return res.status(400).json({ error: check.error });
+
+  db.prepare('UPDATE donations SET display_name = ?, is_public = 1 WHERE order_id = ?').run(
+    check.nom,
+    orderId
+  );
+
+  res.json({ ok: true, published: true, name: check.nom });
 });

@@ -62,8 +62,9 @@ function publicPlayer(room, userId, { reveal = false } = {}) {
   return {
     userId,
     username: p.username,
-    // Badge decoratif : n'entre dans aucune regle de jeu.
+    // Badges decoratifs : n'entrent dans aucune regle de jeu.
     isPremium: Boolean(p.isPremium),
+    isSupporter: Boolean(p.isSupporter),
     ready: Boolean(p.secret),
     connected: p.connected,
     guesses: p.guesses,
@@ -262,14 +263,20 @@ export function attachRealtime(httpServer) {
 
       const waiting = queue.shift();
       if (!waiting) {
-        queue.push({ socketId: socket.id, userId: user.id, username: user.username, isPremium: user.isPremium });
+        queue.push({
+          socketId: socket.id,
+          userId: user.id,
+          username: user.username,
+          isPremium: user.isPremium,
+          isSupporter: user.isSupporter,
+        });
         socket.emit('matchmaking-waiting', { queued: true, position: queue.length });
         return;
       }
 
       const room = makeRoom(
-        { userId: waiting.userId, username: waiting.username, isPremium: waiting.isPremium },
-        { userId: user.id, username: user.username, isPremium: user.isPremium }
+        { userId: waiting.userId, username: waiting.username, isPremium: waiting.isPremium, isSupporter: waiting.isSupporter },
+        { userId: user.id, username: user.username, isPremium: user.isPremium, isSupporter: user.isSupporter }
       );
       const otherSocket = io.sockets.sockets.get(waiting.socketId);
       otherSocket?.join(room.id);
@@ -291,7 +298,13 @@ export function attachRealtime(httpServer) {
       const code = crypto.randomBytes(3).toString('hex').toUpperCase();
       const pending = {
         code,
-        host: { socketId: socket.id, userId: user.id, username: user.username, isPremium: user.isPremium },
+        host: {
+          socketId: socket.id,
+          userId: user.id,
+          username: user.username,
+          isPremium: user.isPremium,
+          isSupporter: user.isSupporter,
+        },
       };
       invites.set(code, pending);
       socket.emit('invite-created', { code });
@@ -308,8 +321,8 @@ export function attachRealtime(httpServer) {
       invites.delete(pending.code);
 
       const room = makeRoom(
-        { userId: pending.host.userId, username: pending.host.username, isPremium: pending.host.isPremium },
-        { userId: user.id, username: user.username, isPremium: user.isPremium }
+        { userId: pending.host.userId, username: pending.host.username, isPremium: pending.host.isPremium, isSupporter: pending.host.isSupporter },
+        { userId: user.id, username: user.username, isPremium: user.isPremium, isSupporter: user.isSupporter }
       );
       io.sockets.sockets.get(pending.host.socketId)?.join(room.id);
       socket.join(room.id);
@@ -419,6 +432,7 @@ export function attachRealtime(httpServer) {
         userId: user.id,
         username: user.username,
         isPremium: user.isPremium,
+        isSupporter: user.isSupporter,
         message: text,
         at: Date.now(),
       });

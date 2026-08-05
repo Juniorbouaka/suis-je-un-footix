@@ -203,6 +203,7 @@ CREATE TABLE IF NOT EXISTS donations (
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   captured_at TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_donations_user ON donations(user_id, status);
 
 CREATE TABLE IF NOT EXISTS archive_results (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -215,6 +216,20 @@ CREATE TABLE IF NOT EXISTS archive_results (
   UNIQUE(user_id, date)
 );
 `);
+
+/*
+ * Mur des soutiens.
+ *
+ * Ces migrations viennent APRÈS le bloc ci-dessus : la table `donations`
+ * doit exister avant qu'on lui ajoute des colonnes. Une base déployée avant
+ * cette version possède déjà la table sans ces deux champs.
+ *
+ * Le nom affiché est facultatif et sa publication est un choix explicite :
+ * par défaut un don reste anonyme. Personne ne doit se retrouver sur une
+ * page publique sans l'avoir demandé.
+ */
+addColumn('donations', 'display_name', 'TEXT');
+addColumn('donations', 'is_public', 'INTEGER NOT NULL DEFAULT 0');
 
 /** Petit helper : convertit les null-prototype rows en objets simples. */
 export function plain(row) {

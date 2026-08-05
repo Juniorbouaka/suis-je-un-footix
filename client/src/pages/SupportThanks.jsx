@@ -86,9 +86,94 @@ export default function SupportThanks() {
         {montant ? `Ton don de ${montant} € est bien arrivé. ` : 'Ton don est bien arrivé. '}
         C'est ce qui fait tourner le jeu.
       </p>
+
+      <SignerLeMur orderId={orderId} />
+
       <div className="row wrap" style={{ gap: 10, marginTop: 20, justifyContent: 'center' }}>
         <Link to="/solo" className="btn">Jouer</Link>
-        <Link to="/" className="btn btn-ghost">Accueil</Link>
+        <Link to="/soutenir" className="btn btn-ghost">Voir le mur</Link>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Proposition de figurer sur le mur des soutiens.
+ *
+ * L'anonymat est le défaut : il faut cliquer pour apparaître, jamais pour
+ * disparaître. Personne ne doit se retrouver sur une page publique sans
+ * l'avoir demandé.
+ */
+function SignerLeMur({ orderId }) {
+  const [nom, setNom] = useState('');
+  const [etat, setEtat] = useState('demande'); // demande | envoi | signe | refuse
+  const [erreur, setErreur] = useState('');
+
+  const envoyer = async (publier) => {
+    setEtat('envoi');
+    setErreur('');
+    try {
+      await api.post(`/donate/${orderId}/name`, { name: nom, public: publier });
+      setEtat(publier ? 'signe' : 'refuse');
+    } catch (err) {
+      setErreur(errorMessage(err));
+      setEtat('demande');
+    }
+  };
+
+  if (etat === 'signe') {
+    return (
+      <div className="alert alert-success" style={{ marginTop: 18, textAlign: 'left' }}>
+        Ton nom apparaît désormais sur le mur des soutiens.
+      </div>
+    );
+  }
+
+  if (etat === 'refuse') {
+    return (
+      <p className="small muted" style={{ marginTop: 18 }}>
+        Ton don reste anonyme. Merci quand même !
+      </p>
+    );
+  }
+
+  return (
+    <div className="signature" style={{ marginTop: 20 }}>
+      <p className="small" style={{ margin: '0 0 10px' }}>
+        Tu veux apparaître sur le <strong>mur des soutiens</strong> ? C'est facultatif, et le
+        montant n'est jamais affiché.
+      </p>
+
+      <input
+        className="input"
+        value={nom}
+        onChange={(e) => setNom(e.target.value)}
+        placeholder="Ton pseudo (24 caractères max)"
+        maxLength={24}
+        aria-label="Nom affiché sur le mur"
+      />
+
+      {erreur && (
+        <div className="alert alert-error" style={{ marginTop: 10 }}>
+          {erreur}
+        </div>
+      )}
+
+      <div className="row" style={{ gap: 8, marginTop: 10 }}>
+        <button
+          className="btn btn-sm grow"
+          disabled={!nom.trim() || etat === 'envoi'}
+          onClick={() => envoyer(true)}
+        >
+          {etat === 'envoi' ? '…' : 'Signer le mur'}
+        </button>
+        <button
+          className="btn btn-ghost btn-sm"
+          disabled={etat === 'envoi'}
+          onClick={() => envoyer(false)}
+        >
+          Rester anonyme
+        </button>
       </div>
     </div>
   );

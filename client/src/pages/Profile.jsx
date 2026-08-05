@@ -5,6 +5,7 @@ import { api, errorMessage } from '../lib/api.js';
 import { closeSocket } from '../lib/socket.js';
 import Icon from '../components/Icon.jsx';
 import PremiumBadge from '../components/PremiumBadge.jsx';
+import SupporterBadge from '../components/SupporterBadge.jsx';
 import SubscriptionCard from '../components/SubscriptionCard.jsx';
 import ThemePicker from '../components/ThemePicker.jsx';
 import DetailedStats from '../components/DetailedStats.jsx';
@@ -45,6 +46,7 @@ export default function Profile() {
             <h1 className="row" style={{ fontSize: 24, gap: 7 }}>
               {user?.username}
               {isPremium && <PremiumBadge size={15} />}
+              {user?.isSupporter && <SupporterBadge size={14} />}
             </h1>
             <p className="muted small">
               {rank?.name}

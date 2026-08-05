@@ -3,6 +3,7 @@ import { db } from '../db.js';
 import { verifyAccessToken } from '../auth.js';
 import { todayUtc, puzzleNumber } from '../words.js';
 import { touch, onlineCount, peakCount } from '../presence.js';
+import { supporterIds } from '../supporters.js';
 
 export const leaderboardRouter = Router();
 
@@ -31,6 +32,9 @@ leaderboardRouter.get('/leaderboard', (req, res) => {
           )
           .all();
 
+  // Un seul appel, plutot qu'une requete par ligne de classement.
+  const soutiens = supporterIds();
+
   const entries = rows.map((r, i) => ({
     position: i + 1,
     userId: r.id,
@@ -38,6 +42,7 @@ leaderboardRouter.get('/leaderboard', (req, res) => {
     // Le classement reste strictement au mérite : le badge est décoratif,
     // il n'entre dans aucun tri.
     isPremium: Boolean(r.is_premium),
+    isSupporter: soutiens.has(r.id),
     total: r.total,
     days: r.days,
     bestAttempts: r.attempts,

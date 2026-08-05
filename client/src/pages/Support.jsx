@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api, errorMessage } from '../lib/api.js';
 import Icon from '../components/Icon.jsx';
+import SupportWall from '../components/SupportWall.jsx';
 
 /**
  * Page de soutien.
@@ -144,6 +145,8 @@ export default function Support() {
           faut — mais le jeu reste entièrement jouable sans rien payer.
         </span>
       </div>
+
+      <SupportWall />
 
       {stats?.supporters > 0 && (
         <p className="small muted center" style={{ marginTop: 16 }}>
