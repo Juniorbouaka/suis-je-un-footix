@@ -2468,3 +2468,14 @@ a:hover {
   color: var(--text-muted);
   background: color-mix(in srgb, var(--text) 8%, transparent);
 }
+
+/* Emplacement publicitaire non rempli : aucun cadre, aucune etiquette.
+   Un encadre vide marque « Publicite » donne l'impression d'un site casse
+   — c'est le cas tant qu'AdSense n'a pas valide le site. */
+.ad-slot.vide {
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  min-height: 0;
+}

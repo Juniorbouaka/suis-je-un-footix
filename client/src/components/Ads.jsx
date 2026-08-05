@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../lib/auth.jsx';
 
 /**
@@ -180,10 +180,16 @@ export function ConsentBanner() {
 export default function AdSlot({ slot, format = 'auto', label = 'Publicité' }) {
   const { consent, adsClient: client } = useConsent();
   const { isPremium } = useAuth();
+  const ins = useRef(null);
+  // Tant que Google n'a pas rempli l'emplacement, on ne montre rien.
+  const [rempli, setRempli] = useState(false);
+
   const affichable = Boolean(client) && consent === 'accepted' && !isPremium;
 
   useEffect(() => {
-    if (!affichable) return;
+    if (!affichable) return undefined;
+    let observateur;
+
     loadAdSense().then((ok) => {
       if (!ok) return;
       try {
@@ -191,15 +197,34 @@ export default function AdSlot({ slot, format = 'auto', label = 'Publicité' }) 
       } catch {
         /* le bloqueur de pub a gagné, tant pis */
       }
+
+      /*
+       * AdSense renseigne « data-ad-status » sur le <ins> : « filled »
+       * quand une annonce est servie, « unfilled » sinon — le cas tant que
+       * le site n'est pas validé, ou quand aucune annonce ne correspond.
+       *
+       * Sans ce contrôle, le joueur voit un cadre vide étiqueté
+       * « Publicité », ce qui donne l'impression d'un site cassé.
+       */
+      if (!ins.current) return;
+      observateur = new MutationObserver(() => {
+        const statut = ins.current?.getAttribute('data-ad-status');
+        if (statut === 'filled') setRempli(true);
+        else if (statut === 'unfilled') setRempli(false);
+      });
+      observateur.observe(ins.current, { attributes: true, attributeFilter: ['data-ad-status'] });
     });
+
+    return () => observateur?.disconnect();
   }, [affichable]);
 
   if (!affichable) return null;
 
   return (
-    <div className="ad-slot" aria-label={label}>
-      <span className="ad-label">{label}</span>
+    <div className={`ad-slot${rempli ? '' : ' vide'}`} aria-label={label}>
+      {rempli && <span className="ad-label">{label}</span>}
       <ins
+        ref={ins}
         className="adsbygoogle"
         style={{ display: 'block' }}
         data-ad-client={client}

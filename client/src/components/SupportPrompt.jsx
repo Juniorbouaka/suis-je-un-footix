@@ -25,7 +25,15 @@ import Icon from './Icon.jsx';
 const CLE = 'footix.support';
 const SEMAINE = 7 * 24 * 3600 * 1000;
 const MOIS = 30 * 24 * 3600 * 1000;
-const PARTIES_MINIMUM = 3;
+/*
+ * Nombre de parties terminées avant la première sollicitation.
+ *
+ * Était à 3 — l'idée étant de laisser aimer le jeu avant de demander quoi
+ * que ce soit. Ramené à 1 : avec une audience encore petite, attendre trois
+ * parties revenait à ne jamais rien afficher. À remonter le jour où le
+ * trafic le permet.
+ */
+const PARTIES_MINIMUM = 1;
 
 function lire() {
   try {
