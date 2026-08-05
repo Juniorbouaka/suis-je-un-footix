@@ -16,7 +16,10 @@
     "secrets": "node scripts/generate-secrets.mjs",
     "paypal:setup": "node scripts/paypal-setup.mjs",
     "start:prod": "node src/index.js",
-    "backup": "node -e \"import('./src/backup.js').then(m=>m.runBackup())\""
+    "backup": "node -e \"import('./src/backup.js').then(m=>m.runBackup())\"",
+    "paypal:check": "node scripts/paypal-check.mjs",
+    "paypal:webhook": "node scripts/paypal-webhook.mjs",
+    "paypal:smoke": "node scripts/paypal-smoke.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
