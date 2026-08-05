@@ -7,14 +7,18 @@ import { Link } from 'react-router-dom';
  * l'imposent l'article 6-III de la LCEN et, dès le premier abonnement
  * encaissé, l'article L221-5 du code de la consommation.
  *
- * Reste UNE ADRESSE DE CONTACT, surlignée en jaune sur la page et tout
- * aussi obligatoire. Prévoir une adresse dédiée, pas une adresse
- * personnelle : elle sera publique et aspirée par les robots.
+ * Railway ne publie pas d'adresse postale sur ses pages légales — la
+ * mention le dit plutôt que d'inventer une adresse. Si un jour une
+ * adresse d'hébergeur est exigée noir sur blanc, il faudra la leur
+ * demander par écrit.
  *
  * Ces textes ne remplacent pas l'avis d'un juriste, en particulier dès
  * qu'il y a encaissement d'abonnements.
  */
 
+/* Surligne un champ restant à renseigner. Plus aucun en usage
+   aujourd'hui — conservé pour les ajouts futurs. */
+// eslint-disable-next-line no-unused-vars
 const ACOMPLETER = ({ children }) => <mark className="todo-legal">{children}</mark>;
 
 function Page({ title, updated, children }) {
@@ -51,15 +55,23 @@ export function MentionsLegales() {
       <p>
         Adresse : 34 rue Salvador Allende, 92000 Nanterre, France
         <br />
-        Contact : <ACOMPLETER>adresse e-mail de contact</ACOMPLETER>
+        Contact : <a href="mailto:juniorbouaka9@gmail.com">juniorbouaka9@gmail.com</a>
         <br />
         Directeur de la publication : <strong>Junior Bouaka</strong>
       </p>
 
       <h2>Hébergement</h2>
       <p>
-        Le site est hébergé par <strong>Railway Corporation</strong>, société de droit américain.{' '}
-        <ACOMPLETER>Adresse du siège à recopier depuis railway.com/legal — à vérifier</ACOMPLETER>
+        Le site est hébergé par <strong>Railway Corporation</strong>, société de droit américain —{' '}
+        <a href="https://railway.com" target="_blank" rel="noreferrer noopener">
+          railway.com
+        </a>
+        . Cet hébergeur ne publie pas d'adresse postale sur ses pages légales ; ses coordonnées
+        complètes peuvent être demandées via{' '}
+        <a href="https://railway.com/legal" target="_blank" rel="noreferrer noopener">
+          railway.com/legal
+        </a>
+        .
       </p>
 
       <h2>Propriété intellectuelle</h2>
@@ -100,7 +112,7 @@ export function Confidentialite() {
       <p>
         <strong>Junior Bouaka</strong>, entrepreneur individuel, éditeur du site (voir les{' '}
         <Link to="/mentions-legales">mentions légales</Link>). Pour toute question relative à tes
-        données : <ACOMPLETER>adresse e-mail de contact</ACOMPLETER>.
+        données : <a href="mailto:juniorbouaka9@gmail.com">juniorbouaka9@gmail.com</a>.
       </p>
 
       <h2>Données collectées</h2>
