@@ -15,14 +15,33 @@ import { useAuth } from '../lib/auth.jsx';
  * de plus ici. Le bandeau de repli ci-dessous ne sert qu'au cas où la CMP
  * n'a pas encore été configurée.
  *
- * Activation : VITE_ADS_CLIENT=ca-pub-XXXX dans client/.env
+ * Activation : ADS_CLIENT=ca-pub-XXXX dans les variables du SERVEUR.
  */
 
 const KEY = 'footix.consent';
 const ConsentContext = createContext(null);
 
-/** L'identifiant AdSense, ou null tant que la publicité n'est pas branchée. */
-export const adsClient = import.meta.env.VITE_ADS_CLIENT || null;
+/*
+ * L'identifiant AdSense est lu à l'EXÉCUTION, auprès du serveur.
+ *
+ * Une variable VITE_* serait figée au moment de la compilation du bundle,
+ * or le front est compilé dans l'image Docker : la poser côté hébergeur
+ * n'aurait aucun effet. En passant par /api/config, activer ou couper la
+ * publicité ne demande qu'un changement de variable et un redémarrage.
+ */
+let adsClient = null;
+let configPromise = null;
+
+function chargerConfig() {
+  configPromise ??= fetch('/api/config')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((c) => {
+      adsClient = c?.adsClient || null;
+      return adsClient;
+    })
+    .catch(() => null);
+  return configPromise;
+}
 
 /* ------------------------------------------------------------------ *
  *  Chargement du script AdSense — une seule fois pour toute la page
@@ -67,8 +86,16 @@ export function ConsentProvider({ children }) {
   // La CMP de Google s'installe elle-même via le script AdSense et expose
   // __tcfapi. Si elle répond, c'est elle qui gère le consentement et notre
   // bandeau de repli doit s'effacer.
+  const [pret, setPret] = useState(false);
+
+  // La configuration décide de tout : sans identifiant, aucun script tiers
+  // n'est chargé et le bandeau ne s'affiche jamais.
   useEffect(() => {
-    if (!adsClient) return;
+    chargerConfig().then(() => setPret(true));
+  }, []);
+
+  useEffect(() => {
+    if (!pret || !adsClient) return;
     let annule = false;
 
     loadAdSense().then((ok) => {
@@ -99,17 +126,17 @@ export function ConsentProvider({ children }) {
     return () => {
       annule = true;
     };
-  }, [decide]);
+  }, [decide, pret]);
 
   return (
-    <ConsentContext.Provider value={{ consent, decide, cmpActive }}>
+    <ConsentContext.Provider value={{ consent, decide, cmpActive, adsClient: pret ? adsClient : null }}>
       {children}
     </ConsentContext.Provider>
   );
 }
 
 export function useConsent() {
-  return useContext(ConsentContext) || { consent: null, decide: () => {}, cmpActive: false };
+  return useContext(ConsentContext) || { consent: null, decide: () => {}, cmpActive: false, adsClient: null };
 }
 
 /**
@@ -120,9 +147,9 @@ export function useConsent() {
  * Funding Choices prend la main, ce bandeau disparaît de lui-même.
  */
 export function ConsentBanner() {
-  const { consent, decide, cmpActive } = useConsent();
+  const { consent, decide, cmpActive, adsClient: client } = useConsent();
 
-  if (consent || cmpActive || !adsClient) return null;
+  if (consent || cmpActive || !client) return null;
 
   return (
     <div className="consent">
@@ -151,9 +178,9 @@ export function ConsentBanner() {
  * qu'aucun identifiant AdSense n'est configuré.
  */
 export default function AdSlot({ slot, format = 'auto', label = 'Publicité' }) {
-  const { consent } = useConsent();
+  const { consent, adsClient: client } = useConsent();
   const { isPremium } = useAuth();
-  const affichable = Boolean(adsClient) && consent === 'accepted' && !isPremium;
+  const affichable = Boolean(client) && consent === 'accepted' && !isPremium;
 
   useEffect(() => {
     if (!affichable) return;
@@ -175,7 +202,7 @@ export default function AdSlot({ slot, format = 'auto', label = 'Publicité' }) 
       <ins
         className="adsbygoogle"
         style={{ display: 'block' }}
-        data-ad-client={adsClient}
+        data-ad-client={client}
         data-ad-slot={slot}
         data-ad-format={format}
         data-full-width-responsive="true"

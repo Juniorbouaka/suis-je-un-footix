@@ -82,6 +82,19 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+/*
+ * Configuration publique, lue a l'execution par le front.
+ *
+ * L'identifiant AdSense passe par ici plutot que par une variable VITE_*,
+ * qui serait figee au moment de la compilation du bundle — or le front est
+ * compile dans l'image Docker. Activer ou couper la publicite ne demande
+ * donc qu'un changement de variable, sans recompiler.
+ */
+app.get('/api/config', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json({ adsClient: config.ads.client || null });
+});
+
 app.use('/api/auth', authRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/donate', donateRouter);
@@ -102,6 +115,24 @@ const CLIENT_DIST = process.env.CLIENT_DIST
   : path.resolve(here, '../../client/dist');
 
 const hasBuild = fs.existsSync(path.join(CLIENT_DIST, 'index.html'));
+
+/*
+ * ads.txt — obligatoire pour AdSense.
+ *
+ * Sans ce fichier a la racine du domaine, Google considere l'inventaire
+ * comme non autorise et limite fortement la diffusion. Il doit etre servi
+ * AVANT le repli SPA, sinon la route attrape-tout renverrait index.html et
+ * AdSense signalerait « ads.txt introuvable ».
+ */
+app.get('/ads.txt', (req, res) => {
+  if (!config.ads.client) return res.status(404).type('text/plain').send('');
+  const pub = config.ads.client.replace(/^ca-/, '');
+  res
+    .type('text/plain')
+    .set('Cache-Control', 'public, max-age=3600')
+    .send(`google.com, ${pub}, DIRECT, f08c47fec0942fa0
+`);
+});
 
 if (hasBuild) {
   // Les assets portent un hash dans leur nom : cache long sans risque.

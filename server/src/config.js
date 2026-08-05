@@ -140,6 +140,22 @@ export const config = {
   // Lien de don externe, si tu préfères une page tierce (Ko-fi, PayPal.me).
   // Vide = on utilise la page de soutien intégrée.
   donateUrl: process.env.DONATE_URL || '',
+
+  /*
+   * Publicité (Google AdSense).
+   *
+   * L'identifiant est lu à l'EXÉCUTION, pas à la compilation. C'est
+   * délibéré : le front est compilé dans l'image Docker, donc une variable
+   * VITE_* ne serait figée qu'au moment du build. En passant par le serveur,
+   * activer ou couper la publicité ne demande qu'un changement de variable
+   * et un redémarrage — aucune recompilation.
+   *
+   * Vide = aucune publicité, aucun script tiers chargé.
+   */
+  ads: {
+    // Format « ca-pub-0000000000000000 », donné par AdSense.
+    client: (process.env.ADS_CLIENT || '').trim(),
+  },
 };
 
 export const isProd = process.env.NODE_ENV === 'production';
