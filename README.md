@@ -109,6 +109,25 @@ type, la longueur et la difficulté.
 
 ---
 
+## Tableau de bord d'administration
+
+`/admin` réunit ce que la base sait déjà : inscriptions, connexions, joueurs actifs, fidélité,
+abonnements, dons et appels Claude du jour. Aucun traceur tiers, aucune donnée envoyée ailleurs.
+
+L'accès se règle par la variable `ADMIN_EMAILS` (adresses séparées par des virgules). C'est un
+droit attaché au compte du jeu, pas un mot de passe supplémentaire : le serveur répond `404` à
+qui n'y figure pas, et retirer une adresse suffit à couper l'accès.
+
+Deux dates suivent chaque compte, parce qu'elles ne disent pas la même chose : `last_login_at`
+(dernière saisie du mot de passe) et `last_seen_at` (dernière requête authentifiée, écrite au
+plus toutes les 5 minutes). Le journal `login_events` ne garde que l'identifiant et l'heure —
+ni adresse IP, ni agent utilisateur.
+
+L'historique des inscriptions remonte à la création du site ; celui des connexions démarre à la
+mise en service de cette version.
+
+---
+
 ## Compteur de présence
 
 La page d'accueil affiche le nombre de personnes **actuellement sur le site** (connectées ou non)
@@ -171,7 +190,8 @@ client/                  React 18 + Vite
 | `GET` | `/api/billing/offer` · `/status` | l'offre premium, l'abonnement en cours |
 | `POST` | `/api/billing/subscribe` · `/confirm` · `/cancel` | souscrire, confirmer, résilier |
 | `POST` | `/api/billing/webhook` | notifications PayPal (signature vérifiée) |
-| `POST` | `/api/demo/guess` | échauffement sans compte |
+| `GET` | `/api/admin/stats?days=` | tableau de bord : comptes, connexions, revenus |
+| `GET` | `/api/admin/users?q=` | annuaire des comptes (administrateur) |
 
 ### WebSocket (`/socket.io`)
 

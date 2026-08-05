@@ -62,6 +62,11 @@ export default function Layout({ children }) {
                 Profil
               </NavLink>
             )}
+            {user?.isAdmin && (
+              <NavLink to="/admin" className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
+                Admin
+              </NavLink>
+            )}
 
             {!isPremium && (
               <NavLink

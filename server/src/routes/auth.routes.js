@@ -12,6 +12,7 @@ import {
   requireAuth,
   publicUser,
   findUserById,
+  recordLogin,
 } from '../auth.js';
 import { readStats, rankFor } from '../scoring.js';
 import { config } from '../config.js';
@@ -63,6 +64,8 @@ authRouter.post('/signup', authLimiter, (req, res) => {
     'INSERT INTO users (id, username, email, password_hash, stats_json) VALUES (?, ?, ?, ?, ?)'
   ).run(id, username, email, hashPassword(password), '{}');
 
+  recordLogin(id, 'signup');
+
   const user = findUserById(id);
   res.status(201).json({
     user: publicUser(user),
@@ -85,6 +88,8 @@ authRouter.post('/login', authLimiter, (req, res) => {
   if (!row || !verifyPassword(password, row.password_hash)) {
     return res.status(401).json({ error: 'Identifiants incorrects.' });
   }
+
+  recordLogin(row.id);
 
   res.json({
     user: publicUser(row),

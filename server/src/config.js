@@ -58,6 +58,21 @@ export const config = {
   // URL publique du site, utilisée dans les e-mails (lien de réinitialisation).
   publicUrl: (process.env.PUBLIC_URL || 'http://localhost:5173').replace(/\/$/, ''),
 
+  /*
+   * Tableau de bord d'administration.
+   *
+   * Liste blanche d'adresses e-mail, séparées par des virgules. C'est un
+   * droit attaché au compte, pas un mot de passe partagé : rien de nouveau à
+   * retenir, et retirer une adresse de la variable coupe l'accès au
+   * redémarrage suivant sans toucher à la base.
+   *
+   * Vide = personne n'est administrateur et /api/admin répond 403 à tous.
+   */
+  adminEmails: (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+
   mail: {
     apiKey: process.env.RESEND_API_KEY || '',
     from: process.env.MAIL_FROM || 'Suis-je un footix ? <onboarding@resend.dev>',

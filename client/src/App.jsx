@@ -15,11 +15,24 @@ import SupportThanks from './pages/SupportThanks.jsx';
 import PremiumThanks from './pages/PremiumThanks.jsx';
 import { MentionsLegales, Confidentialite, Cookies } from './pages/Legal.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
+import Admin from './pages/Admin.jsx';
 
 function Protected({ children }) {
   const { isAuthenticated, loading } = useAuth();
   if (loading) return <div className="spinner" style={{ marginTop: 80 }} />;
   if (!isAuthenticated) return <Navigate to="/" replace />;
+  return children;
+}
+
+/*
+ * Le tableau de bord n'est qu'une vue : le serveur reste seul juge et
+ * répond 404 à qui n'est pas administrateur. Masquer la page ici évite
+ * simplement d'afficher un écran d'erreur à un joueur curieux.
+ */
+function AdminOnly({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <div className="spinner" style={{ marginTop: 80 }} />;
+  if (!user?.isAdmin) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -95,6 +108,14 @@ export default function App() {
             <Protected>
               <Profile />
             </Protected>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <AdminOnly>
+              <Admin />
+            </AdminOnly>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />

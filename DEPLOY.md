@@ -86,6 +86,7 @@ git status --short | grep -E "\.env$|footix\.db"   # ne doit rien afficher
    | `CLIENT_ORIGIN` | *(vide)* |
    | `PUBLIC_URL` | `https://ton-domaine.up.railway.app` |
    | `RESEND_API_KEY` | ta clé Resend (voir ci-dessous) |
+   | `ADMIN_EMAILS` | ton adresse, pour ouvrir `/admin` |
 
    Ne touche pas à `PORT` : Railway l'injecte.
 

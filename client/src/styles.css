@@ -2528,3 +2528,95 @@ a:hover {
     padding: 18px;
   }
 }
+
+/* ------------------------ tableau de bord admin ------------------------ */
+
+.admin-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  margin: 0 0 10px;
+}
+
+.admin-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+/* Le graphique tient dans une flexbox : chaque colonne est un jour, la
+   hauteur de la barre est un pourcentage du maximum de la période. */
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 190px;
+  padding-top: 16px;
+}
+
+.chart-col {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: stretch;
+  gap: 3px;
+}
+
+.chart-count {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-align: center;
+  color: var(--text-faint);
+  line-height: 1;
+  /* Au-delà d'une trentaine de colonnes les nombres se chevaucheraient :
+     la barre et l'infobulle suffisent alors à lire la valeur. */
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.chart-bar {
+  min-height: 2px;
+  border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, var(--green-neon), var(--green));
+  transition: height 0.35s var(--ease), opacity 0.2s var(--ease);
+}
+
+.chart-bar.is-empty {
+  background: var(--surface-2);
+}
+
+.chart-col:hover .chart-bar {
+  opacity: 0.75;
+}
+
+.chart-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* Cinq colonnes d'annuaire ne rentrent pas sur un téléphone : on fait
+   défiler le tableau plutôt que d'écraser les libellés. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+.table-scroll .table {
+  min-width: 620px;
+}
+
+@media (max-width: 820px) {
+  .admin-cols {
+    grid-template-columns: 1fr;
+  }
+  .chart-count {
+    display: none;
+  }
+}

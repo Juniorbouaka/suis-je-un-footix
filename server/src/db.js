@@ -231,6 +231,32 @@ CREATE TABLE IF NOT EXISTS archive_results (
 addColumn('donations', 'display_name', 'TEXT');
 addColumn('donations', 'is_public', 'INTEGER NOT NULL DEFAULT 0');
 
+/*
+ * Suivi des connexions (tableau de bord d'administration).
+ *
+ * Deux dates distinctes, parce qu'elles ne racontent pas la même chose :
+ * `last_login_at` est la dernière saisie du mot de passe, `last_seen_at` la
+ * dernière requête authentifiée — un joueur qui revient tous les jours sans
+ * jamais se déconnecter n'a qu'une seule « connexion » mais trente jours
+ * d'activité.
+ *
+ * Le journal ne garde que l'identifiant et l'horodatage : ni adresse IP, ni
+ * agent utilisateur. Une donnée qu'on ne collecte pas est une donnée qui ne
+ * peut ni fuiter ni être réclamée.
+ */
+addColumn('users', 'last_login_at', 'TEXT');
+addColumn('users', 'last_seen_at', 'TEXT');
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS login_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL DEFAULT 'login',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_login_events_date ON login_events(created_at);
+`);
+
 /** Petit helper : convertit les null-prototype rows en objets simples. */
 export function plain(row) {
   return row ? { ...row } : row;

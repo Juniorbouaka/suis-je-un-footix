@@ -65,7 +65,8 @@ export function findUserById(id) {
     .prepare(
       `SELECT id, username, email, avatar_url, stats_json, is_premium, created_at,
               subscription_provider, subscription_id, subscription_status,
-              subscription_plan, premium_until, pitch_theme
+              subscription_plan, premium_until, pitch_theme,
+              last_login_at, last_seen_at
          FROM users WHERE id = ?`
     )
     .get(id);
@@ -73,6 +74,16 @@ export function findUserById(id) {
   // Point unique d'expiration du premium : toute requête authentifiée passe
   // ici, aucune tâche planifiée n'est donc nécessaire.
   return expireIfNeeded({ ...row });
+}
+
+/**
+ * Droit d'administration : la liste blanche d'adresses vaut décision.
+ * Aucun drapeau en base, donc rien à corriger si la base est restaurée
+ * depuis une sauvegarde, et aucune écriture ne peut promouvoir un compte.
+ */
+export function isAdmin(user) {
+  const email = String(user?.email || '').trim().toLowerCase();
+  return Boolean(email) && config.adminEmails.includes(email);
 }
 
 export function publicUser(user) {
@@ -83,6 +94,7 @@ export function publicUser(user) {
     email: user.email,
     avatarUrl: user.avatar_url || null,
     isPremium: Boolean(user.is_premium),
+    isAdmin: isAdmin(user),
     // Un don encaisse, quelle qu'en soit la date : contrairement au
     // premium, un merci n'a pas d'echeance.
     isSupporter: isSupporter(user.id),
@@ -96,6 +108,35 @@ export function publicUser(user) {
   };
 }
 
+/* -------------------------------------------------------------- *
+ *  Journal de connexion
+ * -------------------------------------------------------------- */
+
+/** SQLite écrit « 2026-08-05 10:12:00 » en UTC, sans marqueur de fuseau. */
+function parseSqliteDate(value) {
+  if (!value) return 0;
+  const iso = value.includes('T') ? value : value.replace(' ', 'T');
+  return Date.parse(iso.endsWith('Z') ? iso : `${iso}Z`) || 0;
+}
+
+// Une écriture au plus toutes les 5 minutes par joueur : la date sert à
+// mesurer une activité quotidienne, pas à la seconde près, et une partie
+// génère une requête par tentative.
+const SEEN_THROTTLE_MS = 5 * 60 * 1000;
+
+export function markSeen(user) {
+  if (Date.now() - parseSqliteDate(user.last_seen_at) < SEEN_THROTTLE_MS) return;
+  db.prepare("UPDATE users SET last_seen_at = datetime('now') WHERE id = ?").run(user.id);
+}
+
+/** Enregistre une connexion : date sur le compte + ligne dans le journal. */
+export function recordLogin(userId, kind = 'login') {
+  db.prepare("UPDATE users SET last_login_at = datetime('now'), last_seen_at = datetime('now') WHERE id = ?").run(
+    userId
+  );
+  db.prepare('INSERT INTO login_events (user_id, kind) VALUES (?, ?)').run(userId, kind);
+}
+
 /** Middleware Express : exige un access token valide. */
 export function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
@@ -106,8 +147,22 @@ export function requireAuth(req, res, next) {
   const user = findUserById(payload.sub);
   if (!user) return res.status(401).json({ error: 'Compte introuvable.' });
 
+  markSeen(user);
   req.user = user;
   next();
+}
+
+/**
+ * Middleware Express : exige un compte administrateur.
+ *
+ * On répond 404 et non 403 : une route d'administration ne doit pas
+ * confirmer son existence à qui n'y a pas droit.
+ */
+export function requireAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (!isAdmin(req.user)) return res.status(404).json({ error: 'Route introuvable.' });
+    next();
+  });
 }
 
 /** Authentification d'un handshake Socket.io. */
