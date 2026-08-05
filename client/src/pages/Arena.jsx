@@ -6,6 +6,7 @@ import Gauge from '../components/Gauge.jsx';
 import GuessList from '../components/GuessList.jsx';
 import Confetti from '../components/Confetti.jsx';
 import Icon from '../components/Icon.jsx';
+import PremiumBadge from '../components/PremiumBadge.jsx';
 
 /** Compte à rebours du tour : 15 s pour proposer. */
 function TurnClock({ deadline, active }) {
@@ -310,7 +311,10 @@ export default function Arena() {
             <div className="row">
               <span className="avatar avatar-foe">{(foe?.username || '?')[0].toUpperCase()}</span>
               <div>
-                <div style={{ fontWeight: 700 }}>{foe?.username || 'Adversaire'}</div>
+                <div className="row" style={{ fontWeight: 700, gap: 6 }}>
+                  {foe?.username || 'Adversaire'}
+                  {foe?.isPremium && <PremiumBadge size={12} />}
+                </div>
                 <div className="small muted">
                   {foe?.attempts || 0} tentative(s){foe?.connected === false && ' · déconnecté'}
                 </div>
@@ -360,7 +364,8 @@ export default function Arena() {
           ) : (
             messages.map((m, i) => (
               <p key={i} className="chat-msg">
-                <strong>{m.username}</strong> {m.message}
+                <strong>{m.username}</strong>
+                {m.isPremium && <PremiumBadge size={11} />} {m.message}
               </p>
             ))
           )}

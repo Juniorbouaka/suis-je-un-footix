@@ -48,7 +48,7 @@ export default function PitchBackground() {
               height: f.size,
               animationDuration: `${f.duration}s`,
               animationDelay: `${f.delay}s`,
-              color: i % 3 === 0 ? 'var(--green-neon)' : i % 3 === 1 ? 'var(--blue-400)' : 'var(--text)',
+              color: i % 3 === 0 ? 'var(--decor-1)' : i % 3 === 1 ? 'var(--decor-2)' : 'var(--text)',
             }}
           />
         ))}
@@ -57,7 +57,7 @@ export default function PitchBackground() {
       <span
         className="aura"
         aria-hidden="true"
-        style={{ top: '-8%', left: '-6%', width: 420, height: 420, background: 'var(--green)' }}
+        style={{ top: '-8%', left: '-6%', width: 420, height: 420, background: 'var(--decor-1)' }}
       />
       <span
         className="aura"
@@ -67,7 +67,7 @@ export default function PitchBackground() {
           right: '-8%',
           width: 480,
           height: 480,
-          background: 'var(--blue-500)',
+          background: 'var(--decor-3)',
           animationDelay: '-7s',
         }}
       />

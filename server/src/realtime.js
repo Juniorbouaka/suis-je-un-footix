@@ -62,6 +62,8 @@ function publicPlayer(room, userId, { reveal = false } = {}) {
   return {
     userId,
     username: p.username,
+    // Badge decoratif : n'entre dans aucune regle de jeu.
+    isPremium: Boolean(p.isPremium),
     ready: Boolean(p.secret),
     connected: p.connected,
     guesses: p.guesses,
@@ -260,14 +262,14 @@ export function attachRealtime(httpServer) {
 
       const waiting = queue.shift();
       if (!waiting) {
-        queue.push({ socketId: socket.id, userId: user.id, username: user.username });
+        queue.push({ socketId: socket.id, userId: user.id, username: user.username, isPremium: user.isPremium });
         socket.emit('matchmaking-waiting', { queued: true, position: queue.length });
         return;
       }
 
       const room = makeRoom(
-        { userId: waiting.userId, username: waiting.username },
-        { userId: user.id, username: user.username }
+        { userId: waiting.userId, username: waiting.username, isPremium: waiting.isPremium },
+        { userId: user.id, username: user.username, isPremium: user.isPremium }
       );
       const otherSocket = io.sockets.sockets.get(waiting.socketId);
       otherSocket?.join(room.id);
@@ -289,7 +291,7 @@ export function attachRealtime(httpServer) {
       const code = crypto.randomBytes(3).toString('hex').toUpperCase();
       const pending = {
         code,
-        host: { socketId: socket.id, userId: user.id, username: user.username },
+        host: { socketId: socket.id, userId: user.id, username: user.username, isPremium: user.isPremium },
       };
       invites.set(code, pending);
       socket.emit('invite-created', { code });
@@ -306,8 +308,8 @@ export function attachRealtime(httpServer) {
       invites.delete(pending.code);
 
       const room = makeRoom(
-        { userId: pending.host.userId, username: pending.host.username },
-        { userId: user.id, username: user.username }
+        { userId: pending.host.userId, username: pending.host.username, isPremium: pending.host.isPremium },
+        { userId: user.id, username: user.username, isPremium: user.isPremium }
       );
       io.sockets.sockets.get(pending.host.socketId)?.join(room.id);
       socket.join(room.id);
@@ -413,7 +415,13 @@ export function attachRealtime(httpServer) {
       if (!room) return;
       const text = String(message || '').trim().slice(0, 200);
       if (!text) return;
-      broadcast(io, room, 'chat', { userId: user.id, username: user.username, message: text, at: Date.now() });
+      broadcast(io, room, 'chat', {
+        userId: user.id,
+        username: user.username,
+        isPremium: user.isPremium,
+        message: text,
+        at: Date.now(),
+      });
     });
 
     /* --------------------------- Revanche ------------------------- */

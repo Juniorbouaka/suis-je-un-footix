@@ -4,41 +4,125 @@ import { useAuth } from '../lib/auth.jsx';
 /**
  * Publicité et consentement.
  *
- * ATTENTION — ce bandeau est une STRUCTURE de départ, pas une CMP certifiée.
- * Pour diffuser de la publicité personnalisée dans l'UE avec AdSense, il faut
- * une CMP enregistrée IAB TCF v2.2 (Google propose la sienne, ou Axeptio,
- * Didomi, Sirdata…). Ce composant gère le stockage du choix et le blocage
- * du script tant que le consentement n'est pas donné : branche ta vraie CMP
- * ici en remplaçant `ConsentBanner`.
+ * Le consentement est délégué à Google Funding Choices (« Privacy & messaging »
+ * dans le back-office AdSense), qui est une CMP certifiée IAB TCF v2.2. C'est
+ * une obligation, pas un confort : depuis 2024, Google cesse de diffuser des
+ * annonces sur le trafic européen d'un site dépourvu de CMP certifiée. Écrire
+ * son propre bandeau ne suffit donc pas, aussi soigné soit-il.
  *
- * Activation : mettre VITE_ADS_CLIENT=ca-pub-XXXX dans client/.env
+ * Funding Choices est chargé par le même script que AdSense : il suffit
+ * d'activer un message de consentement dans le back-office, rien à installer
+ * de plus ici. Le bandeau de repli ci-dessous ne sert qu'au cas où la CMP
+ * n'a pas encore été configurée.
+ *
+ * Activation : VITE_ADS_CLIENT=ca-pub-XXXX dans client/.env
  */
 
 const KEY = 'footix.consent';
 const ConsentContext = createContext(null);
 
+/** L'identifiant AdSense, ou null tant que la publicité n'est pas branchée. */
+export const adsClient = import.meta.env.VITE_ADS_CLIENT || null;
+
+/* ------------------------------------------------------------------ *
+ *  Chargement du script AdSense — une seule fois pour toute la page
+ * ------------------------------------------------------------------ */
+
+let scriptPromise = null;
+
+function loadAdSense() {
+  if (!adsClient) return Promise.resolve(false);
+  if (scriptPromise) return scriptPromise;
+
+  scriptPromise = new Promise((resolve) => {
+    if (document.querySelector('script[data-adsense]')) return resolve(true);
+
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsClient}`;
+    s.crossOrigin = 'anonymous';
+    s.dataset.adsense = 'true';
+    s.onload = () => resolve(true);
+    // Bloqueur de pub, réseau coupé : on n'insiste pas, le jeu passe avant.
+    s.onerror = () => resolve(false);
+    document.head.appendChild(s);
+  });
+
+  return scriptPromise;
+}
+
+/* ------------------------------------------------------------------ *
+ *  Contexte de consentement
+ * ------------------------------------------------------------------ */
+
 export function ConsentProvider({ children }) {
   const [consent, setConsent] = useState(() => localStorage.getItem(KEY));
+  const [cmpActive, setCmpActive] = useState(false);
 
   const decide = useCallback((value) => {
     localStorage.setItem(KEY, value);
     setConsent(value);
   }, []);
 
+  // La CMP de Google s'installe elle-même via le script AdSense et expose
+  // __tcfapi. Si elle répond, c'est elle qui gère le consentement et notre
+  // bandeau de repli doit s'effacer.
+  useEffect(() => {
+    if (!adsClient) return;
+    let annule = false;
+
+    loadAdSense().then((ok) => {
+      if (!ok || annule) return;
+
+      const detecte = () => {
+        if (annule) return;
+        if (typeof window.__tcfapi !== 'function') return false;
+
+        setCmpActive(true);
+        window.__tcfapi('addEventListener', 2, (tcData, success) => {
+          if (!success || annule) return;
+          // « useractioncomplete » : le joueur vient de répondre.
+          // « tcloaded » : un choix antérieur est rechargé.
+          if (tcData.eventStatus === 'useractioncomplete' || tcData.eventStatus === 'tcloaded') {
+            decide(tcData.gdprApplies === false || tcData.purpose?.consents?.[1] ? 'accepted' : 'refused');
+          }
+        });
+        return true;
+      };
+
+      if (detecte()) return;
+      // La CMP s'enregistre peu après le script : on retente brièvement.
+      const id = setInterval(() => detecte() && clearInterval(id), 400);
+      setTimeout(() => clearInterval(id), 8000);
+    });
+
+    return () => {
+      annule = true;
+    };
+  }, [decide]);
+
   return (
-    <ConsentContext.Provider value={{ consent, decide }}>{children}</ConsentContext.Provider>
+    <ConsentContext.Provider value={{ consent, decide, cmpActive }}>
+      {children}
+    </ConsentContext.Provider>
   );
 }
 
 export function useConsent() {
-  return useContext(ConsentContext) || { consent: null, decide: () => {} };
+  return useContext(ConsentContext) || { consent: null, decide: () => {}, cmpActive: false };
 }
 
+/**
+ * Bandeau de repli.
+ *
+ * Ne s'affiche que si la publicité est branchée ET que la CMP certifiée n'a
+ * pas répondu — typiquement le temps de la configurer dans AdSense. Dès que
+ * Funding Choices prend la main, ce bandeau disparaît de lui-même.
+ */
 export function ConsentBanner() {
-  const { consent, decide } = useConsent();
-  const adsClient = import.meta.env.VITE_ADS_CLIENT;
+  const { consent, decide, cmpActive } = useConsent();
 
-  if (consent || !adsClient) return null;
+  if (consent || cmpActive || !adsClient) return null;
 
   return (
     <div className="consent">
@@ -61,34 +145,29 @@ export function ConsentBanner() {
 }
 
 /**
- * Emplacement publicitaire. N'affiche rien pour les comptes premium,
- * ni tant que le consentement n'a pas été donné, ni si aucun identifiant
- * AdSense n'est configuré.
+ * Emplacement publicitaire.
+ *
+ * Muet pour les abonnés, tant qu'aucun consentement n'est donné, et tant
+ * qu'aucun identifiant AdSense n'est configuré.
  */
 export default function AdSlot({ slot, format = 'auto', label = 'Publicité' }) {
   const { consent } = useConsent();
-  const { profile } = useAuth();
-  const adsClient = import.meta.env.VITE_ADS_CLIENT;
-  const isPremium = profile?.user?.isPremium;
+  const { isPremium } = useAuth();
+  const affichable = Boolean(adsClient) && consent === 'accepted' && !isPremium;
 
   useEffect(() => {
-    if (!adsClient || consent !== 'accepted' || isPremium) return;
-    if (!document.querySelector('script[data-adsense]')) {
-      const s = document.createElement('script');
-      s.async = true;
-      s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsClient}`;
-      s.crossOrigin = 'anonymous';
-      s.dataset.adsense = 'true';
-      document.head.appendChild(s);
-    }
-    try {
-      (window.adsbygoogle = window.adsbygoogle || []).push({});
-    } catch {
-      /* le bloqueur de pub a gagné, tant pis */
-    }
-  }, [adsClient, consent, isPremium]);
+    if (!affichable) return;
+    loadAdSense().then((ok) => {
+      if (!ok) return;
+      try {
+        (window.adsbygoogle = window.adsbygoogle || []).push({});
+      } catch {
+        /* le bloqueur de pub a gagné, tant pis */
+      }
+    });
+  }, [affichable]);
 
-  if (isPremium || !adsClient || consent !== 'accepted') return null;
+  if (!affichable) return null;
 
   return (
     <div className="ad-slot" aria-label={label}>

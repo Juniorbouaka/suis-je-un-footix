@@ -1,18 +1,37 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Link, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '../lib/auth.jsx';
 import { useTheme } from '../lib/theme.jsx';
 import { closeSocket } from '../lib/socket.js';
+import { api } from '../lib/api.js';
 import AuthModal from './AuthModal.jsx';
 import Icon from './Icon.jsx';
+import PremiumBadge from './PremiumBadge.jsx';
 import PitchBackground from './PitchBackground.jsx';
 import { ConsentBanner } from './Ads.jsx';
 
 export default function Layout({ children }) {
-  const { isAuthenticated, user, logout } = useAuth();
+  const { isAuthenticated, user, isPremium, logout } = useAuth();
   const { theme, toggle } = useTheme();
   const [authOpen, setAuthOpen] = useState(false);
   const navigate = useNavigate();
+
+  // Le décor de terrain vit sur la racine du document : tout le CSS s'y
+  // accroche via [data-pitch]. Il est ici, et non dans ThemeProvider, parce
+  // qu'il dépend du compte connecté.
+  const pitch = user?.pitchTheme || 'classique';
+  useEffect(() => {
+    document.documentElement.dataset.pitch = pitch;
+  }, [pitch]);
+
+  // Sert au lien de don du pied de page ; la réponse est publique et mise
+  // en cache par react-query, donc une seule requête par session.
+  const { data: offer } = useQuery({
+    queryKey: ['billing-offer'],
+    queryFn: async () => (await api.get('/billing/offer')).data,
+    staleTime: 5 * 60_000,
+  });
 
   const signOut = async () => {
     closeSocket();
@@ -54,6 +73,15 @@ export default function Layout({ children }) {
               </NavLink>
             )}
 
+            {!isPremium && (
+              <NavLink
+                to="/premium"
+                className={({ isActive }) => `nav-link nav-premium${isActive ? ' active' : ''}`}
+              >
+                <Icon name="crown" size={14} /> Premium
+              </NavLink>
+            )}
+
             <button
               className="btn-icon"
               onClick={toggle}
@@ -65,7 +93,7 @@ export default function Layout({ children }) {
 
             {isAuthenticated ? (
               <button className="btn btn-ghost" onClick={signOut} title={user?.username}>
-                Quitter
+                {isPremium && <PremiumBadge size={12} />} Quitter
               </button>
             ) : (
               <button className="btn" onClick={() => setAuthOpen(true)}>
@@ -81,9 +109,22 @@ export default function Layout({ children }) {
       </main>
 
       <footer className="footer">
-        <div className="container container-wide row row-between wrap">
-          <span>Suis-je un footix ? — proximité sémantique évaluée par Claude.</span>
-          <span className="mono">v1.0</span>
+        <div className="container container-wide stack-sm">
+          <div className="row row-between wrap" style={{ gap: 10 }}>
+            <span>Suis-je un footix ? — proximité sémantique évaluée par Claude.</span>
+            <span className="mono">v1.0</span>
+          </div>
+          <nav className="footer-links small">
+            <Link to="/premium">Premium</Link>
+            <Link to="/mentions-legales">Mentions légales</Link>
+            <Link to="/confidentialite">Confidentialité</Link>
+            <Link to="/cookies">Cookies</Link>
+            {offer?.donateUrl && (
+              <a href={offer.donateUrl} target="_blank" rel="noreferrer noopener">
+                <Icon name="heart" size={12} /> Soutenir le jeu
+              </a>
+            )}
+          </nav>
         </div>
       </footer>
 

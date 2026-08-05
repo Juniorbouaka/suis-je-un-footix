@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
+import PremiumBadge from '../components/PremiumBadge.jsx';
 
 export default function Leaderboard() {
   const [scope, setScope] = useState('all');
@@ -54,7 +55,12 @@ export default function Leaderboard() {
                       {e.position}
                     </span>
                   </td>
-                  <td>{e.username}</td>
+                  <td>
+                    <span className="row" style={{ gap: 6 }}>
+                      {e.username}
+                      {e.isPremium && <PremiumBadge size={12} />}
+                    </span>
+                  </td>
                   <td className="mono" style={{ textAlign: 'right' }}>
                     {e.total}
                   </td>

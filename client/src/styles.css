@@ -91,9 +91,9 @@ body {
   pointer-events: none;
   overflow: hidden;
   background:
-    radial-gradient(900px 520px at 15% -5%, color-mix(in srgb, var(--pitch) 26%, transparent), transparent 65%),
-    radial-gradient(760px 480px at 88% 8%, color-mix(in srgb, var(--blue-500) 24%, transparent), transparent 62%),
-    radial-gradient(700px 500px at 50% 108%, color-mix(in srgb, var(--violet) 18%, transparent), transparent 60%),
+    radial-gradient(900px 520px at 15% -5%, color-mix(in srgb, var(--decor-1) 26%, transparent), transparent 65%),
+    radial-gradient(760px 480px at 88% 8%, color-mix(in srgb, var(--decor-2) 24%, transparent), transparent 62%),
+    radial-gradient(700px 500px at 50% 108%, color-mix(in srgb, var(--decor-3) 18%, transparent), transparent 60%),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
 }
 
@@ -108,7 +108,7 @@ body {
     currentColor 0 68px,
     transparent 68px 136px
   );
-  color: var(--pitch);
+  color: var(--decor-1);
 }
 
 /* lignes du terrain : rond central + surface */
@@ -1766,4 +1766,530 @@ a:hover {
   border-radius: var(--radius);
   border: 1px solid color-mix(in srgb, var(--red) 32%, transparent);
   background: color-mix(in srgb, var(--red) 7%, transparent);
+}
+
+/* ====================================================================
+   PREMIUM — abonnement, thèmes de terrain, statistiques détaillées
+   ==================================================================== */
+
+/* ------------------------- décor du terrain -------------------------
+   Trois couleurs, et trois seulement, portent le décor de fond. Elles
+   sont volontairement séparées des couleurs d'interface : changer de
+   décor ne doit jamais repeindre un bouton.                            */
+
+:root {
+  --decor-1: var(--pitch);
+  --decor-2: var(--blue-500);
+  --decor-3: var(--violet);
+
+  /* Encre des graphiques : vérifiée à au moins 3:1 sur fond blanc. */
+  --chart-ink: #059669;
+}
+
+:root[data-theme='dark'] {
+  /* Sur fond sombre (#101d31), le vert clair passe le même seuil. */
+  --chart-ink: #34d399;
+}
+
+:root[data-pitch='nocturne'] {
+  --decor-1: #1d4ed8;
+  --decor-2: #0ea5e9;
+  --decor-3: #4338ca;
+}
+
+:root[data-pitch='braise'] {
+  --decor-1: #ea580c;
+  --decor-2: #f59e0b;
+  --decor-3: #b91c1c;
+}
+
+:root[data-pitch='glace'] {
+  --decor-1: #0891b2;
+  --decor-2: #67e8f9;
+  --decor-3: #3b82f6;
+}
+
+:root[data-pitch='ocre'] {
+  --decor-1: #c2410c;
+  --decor-2: #d97706;
+  --decor-3: #78350f;
+}
+
+/* ---------------------------- le badge ------------------------------ */
+
+.premium-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--amber);
+  flex: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.nav-premium {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--amber);
+}
+
+/* ------------------------- la page premium -------------------------- */
+
+.premium-hero-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 999px;
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--amber) 34%, transparent);
+}
+
+.premium-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.premium-feature {
+  display: flex;
+  gap: 12px;
+  padding: 15px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+
+.premium-feature-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 11px;
+  color: var(--green-neon);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+.premium-feature-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.premium-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong);
+}
+
+.premium-note .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--green-neon);
+}
+
+/* ------------------------------ tarifs ------------------------------ */
+
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.plan {
+  position: relative;
+  text-align: center;
+}
+
+.plan-best {
+  border-color: color-mix(in srgb, var(--green-neon) 50%, transparent);
+  box-shadow: var(--shadow-float);
+}
+
+.plan-flag {
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: var(--bg-deep);
+  background: var(--green-neon);
+}
+
+.plan-label {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.plan-price {
+  margin-top: 8px;
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-currency {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.subscription-card.premium {
+  border-color: color-mix(in srgb, var(--amber) 40%, transparent);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--amber) 8%, transparent),
+    var(--surface) 60%
+  );
+}
+
+.subscription-card h2 .icon {
+  color: var(--amber);
+  vertical-align: -2px;
+}
+
+/* ----------------------- décors sélectionnables --------------------- */
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 11px;
+}
+
+.theme-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1.5px solid transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+}
+
+.theme-card:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+}
+
+.theme-card.active {
+  border-color: var(--green-neon);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+}
+
+.theme-card.locked {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.theme-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.theme-name .icon {
+  color: var(--text-faint);
+}
+
+.theme-card.active .theme-name .icon {
+  color: var(--green-neon);
+}
+
+.theme-hint {
+  line-height: 1.35;
+}
+
+/* Aperçu : les mêmes trois couleurs que le décor réel, en miniature. */
+.theme-preview {
+  height: 52px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(60px 40px at 18% 0%, color-mix(in srgb, var(--p1) 55%, transparent), transparent 70%),
+    radial-gradient(60px 40px at 88% 15%, color-mix(in srgb, var(--p2) 50%, transparent), transparent 70%),
+    radial-gradient(70px 45px at 50% 110%, color-mix(in srgb, var(--p3) 45%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-deep) 100%);
+}
+
+.theme-preview[data-pitch-preview='classique'] { --p1: #10b981; --p2: #2563eb; --p3: #7c3aed; }
+.theme-preview[data-pitch-preview='nocturne']  { --p1: #1d4ed8; --p2: #0ea5e9; --p3: #4338ca; }
+.theme-preview[data-pitch-preview='braise']    { --p1: #ea580c; --p2: #f59e0b; --p3: #b91c1c; }
+.theme-preview[data-pitch-preview='glace']     { --p1: #0891b2; --p2: #67e8f9; --p3: #3b82f6; }
+.theme-preview[data-pitch-preview='ocre']      { --p1: #c2410c; --p2: #d97706; --p3: #78350f; }
+
+/* ------------------------- graphiques -------------------------------
+   Une seule série partout : pas de légende, le titre nomme la donnée.
+   Les valeurs restent en encre de texte, jamais dans la couleur de la
+   série — la couleur porte l'identité, le texte porte le chiffre.      */
+
+.chart-title {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  color: var(--text-muted);
+}
+
+.chart-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.chart-bar-row {
+  display: grid;
+  grid-template-columns: 48px 1fr 34px;
+  align-items: center;
+  gap: 10px;
+}
+
+.chart-bar-label {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.chart-bar-track {
+  height: 13px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.chart-bar-fill {
+  height: 100%;
+  min-width: 3px;
+  /* Extrémité arrondie côté valeur, ancrée à plat sur la ligne de base. */
+  border-radius: 0 4px 4px 0;
+  background: var(--chart-ink);
+  transition: width 0.5s var(--ease);
+}
+
+.chart-bar-value {
+  font-size: 12.5px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-line-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chart-line {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-line-path {
+  fill: none;
+  stroke: var(--chart-ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chart-line-dot {
+  fill: var(--chart-ink);
+  /* Anneau de la couleur du fond : les points restent lisibles quand la
+     courbe se replie sur elle-même. */
+  stroke: var(--surface-solid);
+  stroke-width: 2;
+}
+
+.chart-crosshair {
+  stroke: var(--text-faint);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chart-axis {
+  display: flex;
+  justify-content: space-between;
+}
+
+.chart-tooltip {
+  min-height: 20px;
+  color: var(--text-muted);
+}
+
+/* --------------------------- issues ---------------------------------
+   Statut : jamais la couleur seule. Chaque ligne porte une icône et un
+   libellé, lisibles en daltonisme comme à l'impression.                */
+
+.outcome-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.outcome-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: 14px;
+}
+
+.outcome-row .mono {
+  font-variant-numeric: tabular-nums;
+}
+
+.outcome-icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.outcome-ok .outcome-icon { color: var(--green); }
+.outcome-warn .outcome-icon { color: var(--amber); }
+.outcome-bad .outcome-icon { color: var(--red); }
+
+:root[data-theme='dark'] .outcome-ok .outcome-icon { color: var(--green-neon); }
+
+/* ---------------------- archives jouables --------------------------- */
+
+.archive-row {
+  text-decoration: none;
+}
+
+.pill-action {
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+}
+
+:root[data-theme='dark'] .pill-action {
+  color: var(--green-neon);
+}
+
+/* --------------------------- pied de page --------------------------- */
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+
+.footer-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.footer-links a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+/* -------------------------- pages légales --------------------------- */
+
+.legal h2 {
+  font-size: 17px;
+  margin: 22px 0 8px;
+}
+
+.legal .card > h2:first-child {
+  margin-top: 0;
+}
+
+.legal p,
+.legal li {
+  line-height: 1.65;
+  color: var(--text-muted);
+}
+
+.legal ul {
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.legal-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0 4px;
+  font-size: 13.5px;
+}
+
+.legal-table th,
+.legal-table td {
+  text-align: left;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.legal-table th {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+/* Champs restant à renseigner : impossible à publier sans les voir. */
+.todo-legal {
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-weight: 600;
+  color: var(--bg-deep);
+  background: var(--amber);
+}
+
+@media (max-width: 640px) {
+  .hide-sm {
+    display: none;
+  }
+
+  .plan-price {
+    font-size: 34px;
+  }
+
+  .legal-table th:last-child,
+  .legal-table td:last-child {
+    display: none; /* la base légale, la moins utile sur petit écran */
+  }
 }

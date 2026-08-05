@@ -131,13 +131,19 @@ server/                  Node.js + Express + Socket.io
   src/scoring.js         scores, stats, rangs
   src/achievements.js    médailles
   src/realtime.js        matchmaking, duel, chat, revanche
-  src/routes/            auth · jeu · classement
+  src/billing.js         état de l'abonnement, expiration paresseuse des droits
+  src/paypal.js          client REST PayPal (fetch natif, aucune dépendance)
+  src/themes.js          catalogue des décors de terrain
+  src/routes/            auth · jeu · archives · classement · facturation
+  scripts/paypal-setup   crée le produit et les plans d'abonnement chez PayPal
   tests/duel.e2e.mjs     test bout-en-bout du duel
   tests/bank.check.mjs   validation de la base de joueurs
 
 client/                  React 18 + Vite
   src/components/        PitchBackground, Gauge, GuessList, Icon, AuthModal, Confetti, Layout
+                         PremiumBadge, SubscriptionCard, ThemePicker, DetailedStats, Ads
   src/pages/             Landing · Solo · Matchmaking · Arena · Leaderboard · Profile
+                         Archive · ArchiveGame · Premium · PremiumThanks · Legal
   src/lib/               api, auth, socket, thème, présence
   src/styles.css         design system (verre dépoli, cartes flottantes, décor de stade)
 ```
@@ -158,6 +164,13 @@ client/                  React 18 + Vite
 | `GET` | `/api/stats/global` | compteurs d'accueil (dont `online` et `bankSize`) |
 | `POST` | `/api/presence` | ping de présence |
 | `GET` | `/api/archive` · `/archive/:date` | journées passées (3 jours libres, puis premium) |
+| `POST` | `/api/archive/:date/guess` · `/surrender` | **rejouer** une journée passée |
+| `DELETE` | `/api/archive/:date/replay` | effacer un rejeu et recommencer |
+| `GET` | `/api/me/stats/detailed` | statistiques détaillées (premium) |
+| `GET` | `/api/themes` · `PUT /api/me/theme` | décors de terrain |
+| `GET` | `/api/billing/offer` · `/status` | l'offre premium, l'abonnement en cours |
+| `POST` | `/api/billing/subscribe` · `/confirm` · `/cancel` | souscrire, confirmer, résilier |
+| `POST` | `/api/billing/webhook` | notifications PayPal (signature vérifiée) |
 | `POST` | `/api/demo/guess` | échauffement sans compte |
 
 ### WebSocket (`/socket.io`)
@@ -184,6 +197,83 @@ deux sont à sec, c'est **match nul** et chacun marque 100 points. `score = 200 
 **Jauge** — 0-15 rouge, 16-40 orange, 41-70 jaune, 71-85 vert clair, 86-100 vert.
 
 ---
+
+---
+
+## Le modèle économique
+
+Le jeu coûte de l'argent à chaque partie : chaque proposition part vers l'API Claude. Deux
+recettes le financent — l'abonnement et la publicité — et une troisième, les dons, complète.
+
+### L'abonnement premium
+
+| | |
+|---|---|
+| Encaisseur | PayPal Subscriptions |
+| Tarifs | 2,99 €/mois · 19,99 €/an |
+| Ce que ça débloque | sans publicité · archives complètes · **rejeu des journées passées** · statistiques détaillées · quatre décors de terrain · badge au classement |
+
+**Ce que l'abonnement ne donne jamais : un avantage de jeu.** Pas de tentative supplémentaire,
+pas d'indice, pas d'accès au gros modèle, aucun point. Sur un jeu quotidien avec classement, un
+premium qui aide à gagner transforme le classement en classement des payeurs et vide la
+communauté en quelques semaines. Le rejeu des archives se déroule d'ailleurs dans des tables
+séparées (`archive_guesses` / `archive_results`) : il ne touche ni `daily_results`, ni les
+statistiques, ni les médailles.
+
+#### Mise en route
+
+```bash
+cd server
+# 1. Renseigner PAYPAL_CLIENT_ID et PAYPAL_CLIENT_SECRET dans .env
+npm run paypal:setup      # cree le produit et les deux plans, affiche les identifiants
+# 2. Recopier PAYPAL_PLAN_MONTHLY et PAYPAL_PLAN_YEARLY dans .env
+# 3. Declarer le webhook indique par le script, recopier PAYPAL_WEBHOOK_ID
+```
+
+Les environnements **sandbox** et **live** de PayPal sont étanches : un plan créé dans l'un
+n'existe pas dans l'autre. Le script est donc à rejouer au passage en production.
+
+Sans `PAYPAL_WEBHOOK_ID`, tous les webhooks sont refusés — c'est voulu : un webhook non vérifié
+laisserait n'importe qui s'offrir le premium en appelant la route. Mais tant qu'il manque, les
+renouvellements et les résiliations ne sont jamais pris en compte.
+
+#### Comment les droits s'ouvrent et se ferment
+
+`premium_until` porte la fin des droits, `is_premium` le drapeau effectif. Une résiliation ne
+coupe rien sur le champ : la période payée va à son terme. L'expiration se fait paresseusement,
+dans `findUserById`, à la première requête suivant l'échéance — il n'y a donc aucune tâche
+planifiée à maintenir. Un thème premium redevient automatiquement le thème libre quand
+l'abonnement s'éteint, sans effacer le choix : il est retrouvé tel quel en cas de réabonnement.
+
+Deux chemins mettent l'abonnement à jour, volontairement redondants : le retour de PayPal
+(`/api/billing/confirm`, qui interroge PayPal côté serveur — le client ne décide de rien) et le
+webhook, qui fait foi. Le premier ouvre les droits tout de suite, le second les maintient dans
+la durée.
+
+### La publicité
+
+Le composant `client/src/components/Ads.jsx` est prêt mais dormant : il ne s'active qu'une fois
+`VITE_ADS_CLIENT` renseigné. Trois choses sont nécessaires avant qu'AdSense accepte le site :
+
+1. **Un nom de domaine à toi** — un sous-domaine d'hébergeur ne suffit pas.
+2. **Les pages légales** — mentions, confidentialité, cookies. Elles existent
+   (`client/src/pages/Legal.jsx`) mais contiennent des champs **à compléter**, surlignés en
+   jaune sur la page tant qu'ils ne le sont pas. Le site n'est pas publiable en l'état.
+3. **Une CMP certifiée IAB TCF v2.2** — obligatoire pour le trafic européen depuis 2024. Le
+   code s'appuie sur **Google Funding Choices**, qui s'installe via le même script qu'AdSense :
+   il suffit d'activer un message de consentement dans le back-office. Le bandeau maison ne sert
+   que de repli tant que ce n'est pas fait, et s'efface dès que la CMP répond.
+
+### Les dons
+
+`DONATE_URL` ajoute un lien dans le pied de page (ex. `https://paypal.me/tonpseudo`). Ne jamais
+y mettre une adresse e-mail : une adresse en clair sur une page publique est aspirée par les
+robots en quelques jours.
+
+### Garde-fou de dépense
+
+`DAILY_API_BUDGET` reste le seul rempart contre une facture Anthropic surprise en cas de pic de
+trafic. À relire avant toute campagne de visibilité.
 
 ## Sécurité
 

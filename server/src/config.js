@@ -66,6 +66,42 @@ export const config = {
   // Plafond de dépense : nombre maximum d'appels Claude par jour (UTC).
   // Au-delà, le jeu bascule tout seul sur l'évaluateur de secours.
   dailyApiBudget: Number(process.env.DAILY_API_BUDGET || 3000),
+
+  /*
+   * Abonnement premium, encaissé par PayPal.
+   *
+   * Les identifiants « sandbox » et « live » sont deux mondes séparés :
+   * les plans créés dans l'un n'existent pas dans l'autre. Tant que
+   * PAYPAL_CLIENT_ID est vide, tout le module premium reste inactif et
+   * le jeu fonctionne normalement (personne ne peut s'abonner).
+   *
+   * Création des plans : cd server && npm run paypal:setup
+   */
+  paypal: {
+    clientId: process.env.PAYPAL_CLIENT_ID || '',
+    clientSecret: process.env.PAYPAL_CLIENT_SECRET || '',
+    environment: process.env.PAYPAL_ENV === 'live' ? 'live' : 'sandbox',
+    // Identifiant du webhook, donné par PayPal à la création de l'abonnement
+    // aux notifications. Sans lui, aucun webhook n'est accepté.
+    webhookId: process.env.PAYPAL_WEBHOOK_ID || '',
+    plans: {
+      monthly: process.env.PAYPAL_PLAN_MONTHLY || '',
+      yearly: process.env.PAYPAL_PLAN_YEARLY || '',
+    },
+  },
+
+  // Tarifs affichés. Ils doivent correspondre aux plans PayPal ci-dessus :
+  // c'est PayPal qui facture, ces valeurs ne servent qu'à l'affichage.
+  premium: {
+    monthlyPrice: process.env.PREMIUM_PRICE_MONTHLY || '2,99',
+    yearlyPrice: process.env.PREMIUM_PRICE_YEARLY || '19,99',
+    currency: 'EUR',
+  },
+
+  // Lien de don affiché dans le pied de page (ex. « paypal.me/monpseudo »).
+  // Vide = aucun lien affiché. On n'expose jamais d'adresse e-mail ici :
+  // une adresse en clair sur une page publique est aspirée par les robots.
+  donateUrl: process.env.DONATE_URL || '',
 };
 
 export const isProd = process.env.NODE_ENV === 'production';

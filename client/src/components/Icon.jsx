@@ -103,6 +103,37 @@ const PATHS = {
       <path d="M8.5 10L6 2.5h12L15.5 10" />
     </>
   ),
+  crown: (
+    <>
+      <path d="M3 7l4 3.5L12 4l5 6.5L21 7l-1.8 12H4.8L3 7z" />
+      <path d="M4.8 15.5h14.4" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2.5" />
+      <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+    </>
+  ),
+  play: <path d="M7 4.5l12 7.5-12 7.5v-15z" />,
+  chart: (
+    <>
+      <path d="M4 20V4" />
+      <path d="M4 20h16" />
+      <path d="M8 20v-6M13 20V8M18 20v-9" />
+    </>
+  ),
+  heart: (
+    <path d="M12 20.5S3.5 15 3.5 9.2A4.7 4.7 0 0 1 12 6.5a4.7 4.7 0 0 1 8.5 2.7c0 5.8-8.5 11.3-8.5 11.3z" />
+  ),
+  palette: (
+    <>
+      <path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.9 1.8-1.8 0-1.2-1-1.6-1-2.7 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-3.9-4-7-9-7z" />
+      <circle cx="7.5" cy="11" r="1.1" />
+      <circle cx="12" cy="7.5" r="1.1" />
+      <circle cx="16.5" cy="11" r="1.1" />
+    </>
+  ),
 };
 
 export default function Icon({ name, size = 18, className = '', strokeWidth = 1.8 }) {

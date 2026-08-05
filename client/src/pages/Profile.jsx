@@ -1,12 +1,16 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth.jsx';
 import { api, errorMessage } from '../lib/api.js';
 import { closeSocket } from '../lib/socket.js';
 import Icon from '../components/Icon.jsx';
+import PremiumBadge from '../components/PremiumBadge.jsx';
+import SubscriptionCard from '../components/SubscriptionCard.jsx';
+import ThemePicker from '../components/ThemePicker.jsx';
+import DetailedStats from '../components/DetailedStats.jsx';
 
 export default function Profile() {
-  const { user, stats, rank, achievements, logout } = useAuth();
+  const { user, stats, rank, achievements, logout, isPremium } = useAuth();
   const navigate = useNavigate();
   const [confirming, setConfirming] = useState(false);
   const [password, setPassword] = useState('');
@@ -38,7 +42,10 @@ export default function Profile() {
         <div className="row" style={{ gap: 16 }}>
           <span className="avatar avatar-lg">{(user?.username || '?')[0].toUpperCase()}</span>
           <div className="grow">
-            <h1 style={{ fontSize: 24 }}>{user?.username}</h1>
+            <h1 className="row" style={{ fontSize: 24, gap: 7 }}>
+              {user?.username}
+              {isPremium && <PremiumBadge size={15} />}
+            </h1>
             <p className="muted small">
               {rank?.name}
               {rank?.next && ` · encore ${rank.toNext} partie(s) pour ${rank.next}`}
@@ -79,6 +86,32 @@ export default function Profile() {
           </div>
         </div>
       </div>
+
+      <SubscriptionCard />
+
+      <div className="card" style={{ marginBottom: 18 }}>
+        <div className="row row-between wrap" style={{ marginBottom: 14, gap: 10 }}>
+          <h2 style={{ fontSize: 18, margin: 0 }}>
+            <Icon name="chart" size={16} /> Statistiques détaillées
+          </h2>
+          {!isPremium && (
+            <span className="pill faint">
+              <Icon name="lock" size={12} /> premium
+            </span>
+          )}
+        </div>
+
+        {isPremium ? (
+          <DetailedStats />
+        ) : (
+          <p className="muted small" style={{ margin: 0 }}>
+            Ta progression mois par mois, la répartition de tes tentatives et l'issue de chacune de
+            tes parties. <Link to="/premium">Voir le premium</Link>.
+          </p>
+        )}
+      </div>
+
+      <ThemePicker />
 
       <div className="card" style={{ marginBottom: 18 }}>
         <h2 style={{ fontSize: 18, marginBottom: 14 }}>Médailles</h2>

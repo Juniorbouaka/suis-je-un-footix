@@ -10,6 +10,8 @@ import './db.js';
 import { authRouter } from './routes/auth.routes.js';
 import { gameRouter } from './routes/game.routes.js';
 import { leaderboardRouter } from './routes/leaderboard.routes.js';
+import { billingRouter, billingWebhook } from './routes/billing.routes.js';
+import { archiveRouter } from './routes/archive.routes.js';
 import { attachRealtime, onlineCount } from './realtime.js';
 import { getDailyWord, todayUtc } from './words.js';
 import { claudeEnabled } from './claude.js';
@@ -27,6 +29,19 @@ const app = express();
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
+
+/*
+ * Le webhook PayPal est monté avant express.json() : la vérification de
+ * signature se fait sur le corps BRUT de la requête. Un JSON déjà analysé
+ * puis re-sérialisé ne redonne pas les mêmes octets, et la signature
+ * échouerait systématiquement.
+ */
+app.post(
+  '/api/billing/webhook',
+  express.raw({ type: 'application/json', limit: '256kb' }),
+  billingWebhook
+);
+
 app.use(express.json({ limit: '64kb' }));
 
 // CORS uniquement si le front est servi depuis une autre origine (mode dev).
@@ -60,6 +75,8 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/auth', authRouter);
+app.use('/api/billing', billingRouter);
+app.use('/api', archiveRouter);
 app.use('/api', gameRouter);
 app.use('/api', leaderboardRouter);
 

@@ -3,6 +3,8 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { config } from './config.js';
 import { db } from './db.js';
+import { expireIfNeeded } from './billing.js';
+import { canUseTheme, DEFAULT_THEME } from './themes.js';
 
 export function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
@@ -58,8 +60,18 @@ export function verifyAccessToken(token) {
 }
 
 export function findUserById(id) {
-  const row = db.prepare('SELECT id, username, email, avatar_url, stats_json, is_premium, created_at FROM users WHERE id = ?').get(id);
-  return row ? { ...row } : null;
+  const row = db
+    .prepare(
+      `SELECT id, username, email, avatar_url, stats_json, is_premium, created_at,
+              subscription_provider, subscription_id, subscription_status,
+              subscription_plan, premium_until, pitch_theme
+         FROM users WHERE id = ?`
+    )
+    .get(id);
+  if (!row) return null;
+  // Point unique d'expiration du premium : toute requête authentifiée passe
+  // ici, aucune tâche planifiée n'est donc nécessaire.
+  return expireIfNeeded({ ...row });
 }
 
 export function publicUser(user) {
@@ -70,6 +82,12 @@ export function publicUser(user) {
     email: user.email,
     avatarUrl: user.avatar_url || null,
     isPremium: Boolean(user.is_premium),
+    // Un abonnement expiré ne doit pas laisser un thème premium actif :
+    // on retombe sur le thème libre sans rien effacer, le choix est
+    // retrouvé tel quel en cas de réabonnement.
+    pitchTheme: canUseTheme(user.pitch_theme, user.is_premium)
+      ? user.pitch_theme
+      : DEFAULT_THEME,
     createdAt: user.created_at,
   };
 }
@@ -95,6 +113,11 @@ export function authenticateSocket(socket, next) {
   if (!payload) return next(new Error('Authentification requise.'));
   const user = findUserById(payload.sub);
   if (!user) return next(new Error('Compte introuvable.'));
-  socket.data.user = { id: user.id, username: user.username };
+  socket.data.user = {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    isPremium: Boolean(user.is_premium),
+  };
   next();
 }

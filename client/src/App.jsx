@@ -8,6 +8,10 @@ import Arena from './pages/Arena.jsx';
 import Leaderboard from './pages/Leaderboard.jsx';
 import Profile from './pages/Profile.jsx';
 import Archive from './pages/Archive.jsx';
+import ArchiveGame from './pages/ArchiveGame.jsx';
+import Premium from './pages/Premium.jsx';
+import PremiumThanks from './pages/PremiumThanks.jsx';
+import { MentionsLegales, Confidentialite, Cookies } from './pages/Legal.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 
 function Protected({ children }) {
@@ -56,6 +60,29 @@ export default function App() {
             </Protected>
           }
         />
+        <Route
+          path="/archives/:date"
+          element={
+            <Protected>
+              <ArchiveGame />
+            </Protected>
+          }
+        />
+
+        {/* L'offre est publique : on doit pouvoir la lire sans compte. */}
+        <Route path="/premium" element={<Premium />} />
+        <Route
+          path="/premium/merci"
+          element={
+            <Protected>
+              <PremiumThanks />
+            </Protected>
+          }
+        />
+
+        <Route path="/mentions-legales" element={<MentionsLegales />} />
+        <Route path="/confidentialite" element={<Confidentialite />} />
+        <Route path="/cookies" element={<Cookies />} />
         <Route
           path="/profil"
           element={

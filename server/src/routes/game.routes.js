@@ -14,6 +14,7 @@ import {
 import { getDailyWord, publicDailyWord, todayUtc, puzzleNumber } from '../words.js';
 import { soloScore, recordSoloWin, readStats, rankFor } from '../scoring.js';
 import { evaluateSolo, listFor } from '../achievements.js';
+import { PITCH_THEMES, DEFAULT_THEME, findTheme, canUseTheme } from '../themes.js';
 
 export const gameRouter = Router();
 
@@ -266,80 +267,8 @@ gameRouter.get('/history', requireAuth, (req, res) => {
   res.json({ date, guesses: guessRows(req.user.id, date), result: resultRow(req.user.id, date) });
 });
 
-/* -------------------------------------------------------------- *
- *  GET /api/archive — les joueurs des jours précédents
- *  Aperçu gratuit sur les 3 derniers jours, historique complet en premium.
- * -------------------------------------------------------------- */
-
-const FREE_ARCHIVE_DAYS = 3;
-
-gameRouter.get('/archive', requireAuth, (req, res) => {
-  const today = todayUtc();
-  const isPremium = Boolean(req.user.is_premium);
-
-  const rows = db
-    .prepare(
-      `SELECT w.date, w.word, r.attempts, r.seconds, r.score, r.outcome
-       FROM daily_words w
-       LEFT JOIN daily_results r ON r.date = w.date AND r.user_id = ?
-       WHERE w.date < ?
-       ORDER BY w.date DESC
-       LIMIT 400`
-    )
-    .all(req.user.id, today);
-
-  const days = rows.map((row, i) => {
-    const locked = !isPremium && i >= FREE_ARCHIVE_DAYS;
-    return {
-      date: row.date,
-      number: puzzleNumber(row.date),
-      locked,
-      // Le nom n'est révélé que si la journée est accessible.
-      word: locked ? null : row.word,
-      played: Boolean(row.outcome),
-      result: row.outcome
-        ? { attempts: row.attempts, seconds: row.seconds, score: row.score, outcome: row.outcome }
-        : null,
-    };
-  });
-
-  res.json({
-    isPremium,
-    freeDays: FREE_ARCHIVE_DAYS,
-    total: days.length,
-    days,
-  });
-});
-
-/* -------------------------------------------------------------- *
- *  GET /api/archive/:date — la fiche d'une journée passée (premium)
- * -------------------------------------------------------------- */
-
-gameRouter.get('/archive/:date', requireAuth, async (req, res) => {
-  const date = String(req.params.date || '');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date >= todayUtc()) {
-    return res.status(400).json({ error: 'Date invalide.' });
-  }
-
-  const row = db.prepare('SELECT word FROM daily_words WHERE date = ?').get(date);
-  if (!row) return res.status(404).json({ error: 'Aucune partie ce jour-là.' });
-
-  const recent = db
-    .prepare('SELECT COUNT(*) AS n FROM daily_words WHERE date < ? AND date >= ?')
-    .get(todayUtc(), date).n;
-
-  if (!req.user.is_premium && recent > FREE_ARCHIVE_DAYS) {
-    return res.status(402).json({ error: 'Cette journée fait partie des archives premium.' });
-  }
-
-  res.json({
-    date,
-    number: puzzleNumber(date),
-    word: row.word,
-    description: (await describePlayer(row.word)).text,
-    guesses: guessRows(req.user.id, date),
-  });
-});
+/* Les journées passées vivent dans routes/archive.routes.js : elles sont
+   devenues jouables, ce qui en fait un module à part entière. */
 
 /* -------------------------------------------------------------- *
  *  GET /api/me/achievements
@@ -347,6 +276,103 @@ gameRouter.get('/archive/:date', requireAuth, async (req, res) => {
 
 gameRouter.get('/me/achievements', requireAuth, (req, res) => {
   res.json({ achievements: listFor(req.user.id) });
+});
+
+/* -------------------------------------------------------------- *
+ *  Thèmes de terrain
+ * -------------------------------------------------------------- */
+
+gameRouter.get('/themes', (req, res) => {
+  res.json({ themes: PITCH_THEMES, default: DEFAULT_THEME });
+});
+
+gameRouter.put('/me/theme', requireAuth, (req, res) => {
+  const key = String(req.body?.theme || '');
+  if (!findTheme(key)) return res.status(400).json({ error: 'Thème inconnu.' });
+
+  if (!canUseTheme(key, req.user.is_premium)) {
+    return res.status(402).json({ error: 'Ce thème est réservé au premium.' });
+  }
+
+  db.prepare('UPDATE users SET pitch_theme = ? WHERE id = ?').run(key, req.user.id);
+  res.json({ theme: key });
+});
+
+/* -------------------------------------------------------------- *
+ *  GET /api/me/stats/detailed — statistiques détaillées (premium)
+ *
+ *  Tout est calculé à la volée depuis daily_results : aucune donnée
+ *  supplémentaire n'est stockée, le premium ne fait qu'ouvrir la lecture.
+ * -------------------------------------------------------------- */
+
+/** Répartition des parties gagnées par nombre de tentatives. */
+const ATTEMPT_BUCKETS = [
+  { label: '1-3', min: 1, max: 3 },
+  { label: '4-6', min: 4, max: 6 },
+  { label: '7-10', min: 7, max: 10 },
+  { label: '11-20', min: 11, max: 20 },
+  { label: '21+', min: 21, max: Infinity },
+];
+
+gameRouter.get('/me/stats/detailed', requireAuth, (req, res) => {
+  if (!req.user.is_premium) {
+    return res.status(402).json({ error: 'Les statistiques détaillées sont réservées au premium.' });
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT date, attempts, seconds, score, outcome
+         FROM daily_results WHERE user_id = ? ORDER BY date ASC`
+    )
+    .all(req.user.id);
+
+  const won = rows.filter((r) => r.outcome === 'found');
+
+  const distribution = ATTEMPT_BUCKETS.map((b) => ({
+    label: b.label,
+    count: won.filter((r) => r.attempts >= b.min && r.attempts <= b.max).length,
+  }));
+
+  const outcomes = {
+    found: rows.filter((r) => r.outcome === 'found').length,
+    surrendered: rows.filter((r) => r.outcome === 'surrendered').length,
+    exhausted: rows.filter((r) => r.outcome === 'exhausted').length,
+  };
+
+  // Moyenne par mois : de quoi tracer une courbe de progression lisible.
+  const months = new Map();
+  for (const r of rows) {
+    const key = r.date.slice(0, 7);
+    const entry = months.get(key) || { month: key, games: 0, total: 0, wins: 0 };
+    entry.games += 1;
+    entry.total += r.score;
+    if (r.outcome === 'found') entry.wins += 1;
+    months.set(key, entry);
+  }
+
+  const average = (list, pick) =>
+    list.length ? Math.round(list.reduce((sum, r) => sum + pick(r), 0) / list.length) : null;
+
+  res.json({
+    // 180 derniers jours : au-delà, le graphique devient illisible.
+    history: rows.slice(-180),
+    distribution,
+    outcomes,
+    byMonth: [...months.values()].map((m) => ({
+      month: m.month,
+      games: m.games,
+      averageScore: Math.round(m.total / m.games),
+      winRate: Math.round((m.wins / m.games) * 100),
+    })),
+    totals: {
+      games: rows.length,
+      winRate: rows.length ? Math.round((outcomes.found / rows.length) * 100) : 0,
+      averageAttempts: average(won, (r) => r.attempts),
+      averageSeconds: average(won, (r) => r.seconds),
+      averageScore: average(rows, (r) => r.score),
+      bestScore: rows.length ? Math.max(...rows.map((r) => r.score)) : 0,
+    },
+  });
 });
 
 /* -------------------------------------------------------------- *

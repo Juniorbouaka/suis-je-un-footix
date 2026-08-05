@@ -1,0 +1,351 @@
+import { Router } from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import { db } from '../db.js';
+import { requireAuth } from '../auth.js';
+import { config } from '../config.js';
+import {
+  describePlayer,
+  evaluateProximity,
+  feedbackFor,
+  normalizeWord,
+  validateGuess,
+} from '../claude.js';
+import { puzzleNumber, todayUtc } from '../words.js';
+
+export const archiveRouter = Router();
+
+/**
+ * Les journées passées.
+ *
+ * Trois jours d'aperçu gratuit, le reste réservé aux abonnés. Un abonné peut
+ * REJOUER une journée qu'il n'a pas faite : la partie se déroule comme en
+ * solo, mais dans des tables séparées (archive_guesses / archive_results).
+ *
+ * Rien de ce qui se passe ici n'alimente le classement, les statistiques ni
+ * les médailles : un abonnement ne doit jamais acheter une place au
+ * classement. C'est du contenu, pas un avantage.
+ */
+
+const FREE_ARCHIVE_DAYS = 3;
+
+/* -------------------------------------------------------------- *
+ *  Helpers
+ * -------------------------------------------------------------- */
+
+/** Nombre de journées écoulées depuis `date` (0 = hier). */
+function daysBack(date) {
+  return db
+    .prepare('SELECT COUNT(*) AS n FROM daily_words WHERE date < ? AND date >= ?')
+    .get(todayUtc(), date).n - 1;
+}
+
+/** La journée est-elle accessible à ce compte ? */
+function canAccess(user, date) {
+  return Boolean(user.is_premium) || daysBack(date) < FREE_ARCHIVE_DAYS;
+}
+
+function archiveGuesses(userId, date) {
+  return db
+    .prepare(
+      `SELECT word_guessed AS word, score, feedback, attempt_number AS attempt, created_at AS createdAt
+         FROM archive_guesses WHERE user_id = ? AND date = ? ORDER BY attempt_number ASC`
+    )
+    .all(userId, date)
+    .map((r) => ({ ...r, tier: feedbackFor(r.score).tier }));
+}
+
+function archiveResult(userId, date) {
+  const row = db
+    .prepare('SELECT * FROM archive_results WHERE user_id = ? AND date = ?')
+    .get(userId, date);
+  return row ? { ...row } : null;
+}
+
+/** A-t-il joué cette journée pour de vrai, le jour même ? */
+function playedForReal(userId, date) {
+  return Boolean(
+    db.prepare('SELECT 1 FROM daily_results WHERE user_id = ? AND date = ?').get(userId, date)
+  );
+}
+
+/**
+ * Le nom peut-il être montré ?
+ * Oui s'il connaît déjà la réponse — parce qu'il a joué ce jour-là, ou parce
+ * qu'il a terminé son rejeu. Sinon on le cache : sans quoi la journée
+ * deviendrait injouable.
+ */
+function mayReveal(userId, date) {
+  return playedForReal(userId, date) || Boolean(archiveResult(userId, date));
+}
+
+function elapsedSeconds(userId, date) {
+  const first = db
+    .prepare(
+      'SELECT created_at FROM archive_guesses WHERE user_id = ? AND date = ? ORDER BY id ASC LIMIT 1'
+    )
+    .get(userId, date);
+  if (!first) return 0;
+  const started = new Date(`${first.created_at.replace(' ', 'T')}Z`).getTime();
+  return Math.max(0, Math.round((Date.now() - started) / 1000));
+}
+
+function validDate(date) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && date < todayUtc();
+}
+
+/* -------------------------------------------------------------- *
+ *  GET /api/archive — la liste des journées
+ * -------------------------------------------------------------- */
+
+archiveRouter.get('/archive', requireAuth, (req, res) => {
+  const isPremium = Boolean(req.user.is_premium);
+
+  const rows = db
+    .prepare(
+      `SELECT w.date, w.word, r.attempts, r.seconds, r.score, r.outcome
+         FROM daily_words w
+         LEFT JOIN daily_results r ON r.date = w.date AND r.user_id = ?
+        WHERE w.date < ?
+        ORDER BY w.date DESC
+        LIMIT 400`
+    )
+    .all(req.user.id, todayUtc());
+
+  const days = rows.map((row, i) => {
+    const locked = !isPremium && i >= FREE_ARCHIVE_DAYS;
+    const played = Boolean(row.outcome);
+    const replay = locked ? null : archiveResult(req.user.id, row.date);
+    const revealed = !locked && (played || Boolean(replay));
+
+    return {
+      date: row.date,
+      number: puzzleNumber(row.date),
+      locked,
+      // Le nom n'est montré que s'il le connaît déjà : sinon la journée
+      // resterait à jouer et l'afficher la gâcherait.
+      word: revealed ? row.word : null,
+      played,
+      result: played
+        ? { attempts: row.attempts, seconds: row.seconds, score: row.score, outcome: row.outcome }
+        : null,
+      // Une journée est rejouable s'il y a accès et ne l'a jamais faite.
+      replayable: !locked && !played,
+      replay: replay
+        ? { attempts: replay.attempts, seconds: replay.seconds, outcome: replay.outcome }
+        : null,
+      inProgress:
+        !locked &&
+        !replay &&
+        archiveGuesses(req.user.id, row.date).length > 0,
+    };
+  });
+
+  res.json({ isPremium, freeDays: FREE_ARCHIVE_DAYS, total: days.length, days });
+});
+
+/* -------------------------------------------------------------- *
+ *  GET /api/archive/:date — l'état d'une journée
+ * -------------------------------------------------------------- */
+
+archiveRouter.get('/archive/:date', requireAuth, async (req, res) => {
+  const date = String(req.params.date || '');
+  if (!validDate(date)) return res.status(400).json({ error: 'Date invalide.' });
+
+  const row = db.prepare('SELECT * FROM daily_words WHERE date = ?').get(date);
+  if (!row) return res.status(404).json({ error: 'Aucune partie ce jour-là.' });
+
+  if (!canAccess(req.user, date)) {
+    return res.status(402).json({ error: 'Cette journée fait partie des archives premium.' });
+  }
+
+  const result = archiveResult(req.user.id, date);
+  const reveal = mayReveal(req.user.id, date);
+
+  res.json({
+    date,
+    number: puzzleNumber(date),
+    // Indices, comme pour la partie du jour : jamais la réponse.
+    length: row.word.length,
+    difficulty: row.difficulty,
+    category: row.category || null,
+    maxAttempts: config.game.maxAttempts,
+    guesses: archiveGuesses(req.user.id, date),
+    result,
+    playedForReal: playedForReal(req.user.id, date),
+    word: reveal ? row.word : null,
+    description: reveal ? (await describePlayer(row.word)).text : null,
+  });
+});
+
+/* -------------------------------------------------------------- *
+ *  POST /api/archive/:date/guess — proposer, sur une journée passée
+ * -------------------------------------------------------------- */
+
+const replayLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: config.game.guessesPerMinute,
+  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Doucement ! 10 propositions par minute maximum.' },
+});
+
+const lastReplayAt = new Map();
+function throttlePerSecond(req, res, next) {
+  const now = Date.now();
+  if (now - (lastReplayAt.get(req.user.id) || 0) < config.game.minGuessIntervalMs) {
+    return res.status(429).json({ error: 'Une proposition par seconde maximum.' });
+  }
+  lastReplayAt.set(req.user.id, now);
+  next();
+}
+
+archiveRouter.post(
+  '/archive/:date/guess',
+  requireAuth,
+  replayLimiter,
+  throttlePerSecond,
+  async (req, res) => {
+    const date = String(req.params.date || '');
+    if (!validDate(date)) return res.status(400).json({ error: 'Date invalide.' });
+
+    const day = db.prepare('SELECT * FROM daily_words WHERE date = ?').get(date);
+    if (!day) return res.status(404).json({ error: 'Aucune partie ce jour-là.' });
+
+    if (!canAccess(req.user, date)) {
+      return res.status(402).json({ error: 'Cette journée fait partie des archives premium.' });
+    }
+    if (playedForReal(req.user.id, date)) {
+      return res.status(409).json({ error: 'Tu as déjà joué cette journée le jour même.' });
+    }
+    if (archiveResult(req.user.id, date)) {
+      return res.status(409).json({ error: 'Tu as déjà rejoué cette journée.' });
+    }
+
+    const check = validateGuess(req.body?.word);
+    if (!check.ok) return res.status(400).json({ error: check.error });
+
+    const previous = db
+      .prepare('SELECT word_guessed, score, attempt_number FROM archive_guesses WHERE user_id = ? AND date = ?')
+      .all(req.user.id, date);
+
+    if (previous.length >= config.game.maxAttempts) {
+      return res.status(409).json({ error: 'Tentatives épuisées sur cette journée.' });
+    }
+
+    const normalized = normalizeWord(check.word);
+    const duplicate = previous.find((g) => normalizeWord(g.word_guessed) === normalized);
+    if (duplicate) {
+      return res.json({
+        duplicate: true,
+        word: duplicate.word_guessed,
+        score: duplicate.score,
+        ...feedbackFor(duplicate.score),
+        attempt: duplicate.attempt_number,
+        found: false,
+        message: 'Tu as déjà proposé ce mot.',
+      });
+    }
+
+    const sheet = await describePlayer(day.word);
+    const evaluation = await evaluateProximity(
+      check.word,
+      day.word,
+      'fr',
+      sheet.usable ? sheet.text : null
+    );
+    const found = normalized === normalizeWord(day.word);
+    const attempt = previous.length + 1;
+    const fb = found ? { label: 'TROUVÉ !', tier: 'found' } : feedbackFor(evaluation.score);
+
+    db.prepare(
+      `INSERT INTO archive_guesses (user_id, date, word_guessed, score, feedback, attempt_number)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(req.user.id, date, check.word, evaluation.score, fb.label, attempt);
+
+    const remaining = Math.max(0, config.game.maxAttempts - attempt);
+
+    const payload = {
+      word: check.word,
+      score: evaluation.score,
+      label: fb.label,
+      tier: fb.tier,
+      attempt,
+      remaining,
+      maxAttempts: config.game.maxAttempts,
+      found,
+      source: evaluation.source,
+    };
+
+    // Fin de partie : trouvé, ou tentatives épuisées.
+    if (found || remaining === 0) {
+      const seconds = elapsedSeconds(req.user.id, date);
+      const outcome = found ? 'found' : 'exhausted';
+
+      db.prepare(
+        `INSERT OR REPLACE INTO archive_results (user_id, date, attempts, seconds, outcome)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(req.user.id, date, attempt, seconds, outcome);
+
+      // Aucun score, aucune médaille, aucune statistique : le rejeu ne
+      // rapporte rien au classement, par construction.
+      payload.result = { attempts: attempt, seconds, outcome, word: day.word };
+      payload.description = (await describePlayer(day.word)).text;
+      if (!found) payload.exhausted = true;
+    }
+
+    res.json(payload);
+  }
+);
+
+/* -------------------------------------------------------------- *
+ *  POST /api/archive/:date/surrender — abandonner et voir la réponse
+ * -------------------------------------------------------------- */
+
+archiveRouter.post('/archive/:date/surrender', requireAuth, async (req, res) => {
+  const date = String(req.params.date || '');
+  if (!validDate(date)) return res.status(400).json({ error: 'Date invalide.' });
+
+  const day = db.prepare('SELECT * FROM daily_words WHERE date = ?').get(date);
+  if (!day) return res.status(404).json({ error: 'Aucune partie ce jour-là.' });
+
+  if (!canAccess(req.user, date)) {
+    return res.status(402).json({ error: 'Cette journée fait partie des archives premium.' });
+  }
+  if (archiveResult(req.user.id, date)) {
+    return res.status(409).json({ error: 'Cette journée est déjà terminée.' });
+  }
+
+  const attempts = db
+    .prepare('SELECT COUNT(*) AS n FROM archive_guesses WHERE user_id = ? AND date = ?')
+    .get(req.user.id, date).n;
+
+  db.prepare(
+    `INSERT OR REPLACE INTO archive_results (user_id, date, attempts, seconds, outcome)
+     VALUES (?, ?, ?, ?, 'surrendered')`
+  ).run(req.user.id, date, attempts, elapsedSeconds(req.user.id, date));
+
+  res.json({
+    word: day.word,
+    description: (await describePlayer(day.word)).text,
+    result: { attempts, outcome: 'surrendered' },
+  });
+});
+
+/* -------------------------------------------------------------- *
+ *  DELETE /api/archive/:date/replay — recommencer une journée
+ * -------------------------------------------------------------- */
+
+archiveRouter.delete('/archive/:date/replay', requireAuth, (req, res) => {
+  const date = String(req.params.date || '');
+  if (!validDate(date)) return res.status(400).json({ error: 'Date invalide.' });
+
+  if (!canAccess(req.user, date)) {
+    return res.status(402).json({ error: 'Cette journée fait partie des archives premium.' });
+  }
+
+  db.prepare('DELETE FROM archive_guesses WHERE user_id = ? AND date = ?').run(req.user.id, date);
+  db.prepare('DELETE FROM archive_results WHERE user_id = ? AND date = ?').run(req.user.id, date);
+
+  res.json({ ok: true });
+});

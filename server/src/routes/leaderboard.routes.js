@@ -15,7 +15,7 @@ leaderboardRouter.get('/leaderboard', (req, res) => {
     scope === 'today'
       ? db
           .prepare(
-            `SELECT u.id, u.username, r.score AS total, r.attempts, r.seconds, 1 AS days
+            `SELECT u.id, u.username, u.is_premium, r.score AS total, r.attempts, r.seconds, 1 AS days
              FROM daily_results r JOIN users u ON u.id = r.user_id
              WHERE r.date = ? AND r.outcome = 'found'
              ORDER BY r.score DESC, r.seconds ASC LIMIT 100`
@@ -23,7 +23,7 @@ leaderboardRouter.get('/leaderboard', (req, res) => {
           .all(date)
       : db
           .prepare(
-            `SELECT u.id, u.username, SUM(r.score) AS total, COUNT(*) AS days,
+            `SELECT u.id, u.username, u.is_premium, SUM(r.score) AS total, COUNT(*) AS days,
                     MIN(r.attempts) AS attempts, MIN(r.seconds) AS seconds
              FROM daily_results r JOIN users u ON u.id = r.user_id
              WHERE r.outcome = 'found'
@@ -35,6 +35,9 @@ leaderboardRouter.get('/leaderboard', (req, res) => {
     position: i + 1,
     userId: r.id,
     username: r.username,
+    // Le classement reste strictement au mérite : le badge est décoratif,
+    // il n'entre dans aucun tri.
+    isPremium: Boolean(r.is_premium),
     total: r.total,
     days: r.days,
     bestAttempts: r.attempts,

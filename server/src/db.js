@@ -122,6 +122,22 @@ addColumn('daily_results', 'outcome', "TEXT NOT NULL DEFAULT 'found'");
 // Compte premium : sans publicité + accès aux archives
 addColumn('users', 'is_premium', 'INTEGER NOT NULL DEFAULT 0');
 
+/*
+ * Abonnement premium.
+ *
+ * `premium_until` est la date de fin des droits. Une résiliation ne coupe
+ * pas l'accès immédiatement : le joueur a payé sa période, il la termine.
+ * `is_premium` reste le drapeau effectif, remis à 0 automatiquement à
+ * l'expiration (voir findUserById dans auth.js).
+ */
+addColumn('users', 'subscription_provider', 'TEXT'); // 'paypal'
+addColumn('users', 'subscription_id', 'TEXT');
+addColumn('users', 'subscription_status', 'TEXT'); // ACTIVE | CANCELLED | SUSPENDED | EXPIRED
+addColumn('users', 'subscription_plan', 'TEXT'); // 'monthly' | 'yearly'
+addColumn('users', 'premium_until', 'TEXT');
+// Thème de terrain choisi (réservé au premium au-delà du thème par défaut)
+addColumn('users', 'pitch_theme', "TEXT NOT NULL DEFAULT 'classique'");
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS password_resets (
   token_hash TEXT PRIMARY KEY,
@@ -134,6 +150,51 @@ CREATE TABLE IF NOT EXISTS password_resets (
 CREATE TABLE IF NOT EXISTS api_usage (
   date  TEXT PRIMARY KEY,
   calls INTEGER NOT NULL DEFAULT 0
+);
+
+/*
+ * Journal des événements de facturation.
+ * La clé primaire est l'identifiant de l'événement PayPal : un même webhook
+ * rejoué (PayPal réessaie jusqu'à 25 fois en cas d'erreur) ne sera traité
+ * qu'une seule fois.
+ */
+CREATE TABLE IF NOT EXISTS billing_events (
+  id         TEXT PRIMARY KEY,
+  type       TEXT NOT NULL,
+  user_id    TEXT,
+  payload    TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+/*
+ * Rejeu des journées passées (premium).
+ *
+ * Tables distinctes de guesses / daily_results à dessein : rejouer une
+ * archive ne doit ni écraser le résultat réel de cette journée, ni rapporter
+ * de points au classement. Un abonné ne doit jamais pouvoir acheter une
+ * place au classement.
+ */
+CREATE TABLE IF NOT EXISTS archive_guesses (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date           TEXT NOT NULL,
+  word_guessed   TEXT NOT NULL,
+  score          INTEGER NOT NULL,
+  feedback       TEXT NOT NULL,
+  attempt_number INTEGER NOT NULL,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_archive_guesses_user_date ON archive_guesses(user_id, date);
+
+CREATE TABLE IF NOT EXISTS archive_results (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date       TEXT NOT NULL,
+  attempts   INTEGER NOT NULL,
+  seconds    INTEGER NOT NULL,
+  outcome    TEXT NOT NULL DEFAULT 'found',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(user_id, date)
 );
 `);
 

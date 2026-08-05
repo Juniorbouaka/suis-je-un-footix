@@ -17,6 +17,7 @@ import { readStats, rankFor } from '../scoring.js';
 import { config } from '../config.js';
 import { sendMail, resetEmail } from '../mailer.js';
 import { listFor } from '../achievements.js';
+import { billingSummary } from '../billing.js';
 
 export const authRouter = Router();
 
@@ -220,5 +221,6 @@ authRouter.get('/me', requireAuth, (req, res) => {
     stats,
     rank: rankFor(stats),
     achievements: listFor(req.user.id),
+    billing: billingSummary(req.user),
   });
 });
