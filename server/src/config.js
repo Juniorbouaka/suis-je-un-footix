@@ -90,6 +90,25 @@ export const config = {
     },
   },
 
+  /*
+   * Stripe — carte bancaire, Apple Pay, Google Pay.
+   *
+   * Contrairement à PayPal, il n'y a pas deux environnements séparés : c'est
+   * la clé qui décide. « sk_test_… » ne touche à rien de réel, « sk_live_… »
+   * encaisse pour de bon. Les identifiants de prix créés avec une clé de
+   * test n'existent pas en production, et inversement.
+   *
+   * Création : cd server && railway run node scripts/stripe-setup.mjs
+   */
+  stripe: {
+    secretKey: process.env.STRIPE_SECRET_KEY || '',
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
+    prices: {
+      monthly: process.env.STRIPE_PRICE_MONTHLY || '',
+      yearly: process.env.STRIPE_PRICE_YEARLY || '',
+    },
+  },
+
   // Tarifs affichés. Ils doivent correspondre aux plans PayPal ci-dessus :
   // c'est PayPal qui facture, ces valeurs ne servent qu'à l'affichage.
   premium: {

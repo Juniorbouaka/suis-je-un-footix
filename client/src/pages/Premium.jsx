@@ -58,13 +58,22 @@ export default function Premium() {
     queryFn: async () => (await api.get('/billing/offer')).data,
   });
 
-  const souscrire = async (planKey) => {
-    setBusy(planKey);
+  /**
+   * Ouvre le paiement chez l'encaisseur choisi.
+   * Les deux repartent avec la même mécanique : le serveur crée la session,
+   * on quitte le site, et le webhook fait foi au retour.
+   */
+  const souscrire = async (planKey, moyen) => {
+    setBusy(`${planKey}:${moyen}`);
     setError('');
     try {
-      const { data } = await api.post('/billing/subscribe', { plan: planKey });
-      // PayPal prend la main : on quitte le site le temps de l'approbation.
-      window.location.href = data.approveUrl;
+      if (moyen === 'stripe') {
+        const { data } = await api.post('/stripe/subscribe', { plan: planKey });
+        window.location.href = data.url;
+      } else {
+        const { data } = await api.post('/billing/subscribe', { plan: planKey });
+        window.location.href = data.approveUrl;
+      }
     } catch (err) {
       setError(errorMessage(err));
       setBusy('');
@@ -143,14 +152,43 @@ export default function Premium() {
               </div>
               <div className="plan-period muted small">{plan.period}</div>
 
-              <button
-                className={`btn btn-lg${plan.key === 'yearly' ? '' : ' btn-ghost'}`}
-                style={{ width: '100%', marginTop: 16 }}
-                disabled={!plan.available || isPremium || Boolean(busy)}
-                onClick={() => souscrire(plan.key)}
-              >
-                {busy === plan.key ? 'Redirection…' : isPremium ? 'Déjà abonné' : "S'abonner"}
-              </button>
+              <div className="stack-sm" style={{ marginTop: 16 }}>
+                {plan.stripe && (
+                  <button
+                    className={`btn btn-lg${plan.key === 'yearly' ? '' : ' btn-ghost'}`}
+                    style={{ width: '100%' }}
+                    disabled={isPremium || Boolean(busy)}
+                    onClick={() => souscrire(plan.key, 'stripe')}
+                  >
+                    {busy === `${plan.key}:stripe`
+                      ? 'Redirection…'
+                      : isPremium
+                        ? 'Déjà abonné'
+                        : 'Payer par carte'}
+                  </button>
+                )}
+
+                {plan.paypal && (
+                  <button
+                    className={`btn btn-lg${plan.key === 'yearly' && !plan.stripe ? '' : ' btn-ghost'}`}
+                    style={{ width: '100%' }}
+                    disabled={isPremium || Boolean(busy)}
+                    onClick={() => souscrire(plan.key, 'paypal')}
+                  >
+                    {busy === `${plan.key}:paypal`
+                      ? 'Redirection…'
+                      : isPremium
+                        ? 'Déjà abonné'
+                        : 'Payer avec PayPal'}
+                  </button>
+                )}
+
+                {!plan.available && (
+                  <p className="small faint center" style={{ margin: 0 }}>
+                    Indisponible
+                  </p>
+                )}
+              </div>
             </div>
           ))}
         </div>

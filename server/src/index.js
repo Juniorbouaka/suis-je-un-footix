@@ -13,11 +13,13 @@ import { leaderboardRouter } from './routes/leaderboard.routes.js';
 import { billingRouter, billingWebhook } from './routes/billing.routes.js';
 import { archiveRouter } from './routes/archive.routes.js';
 import { donateRouter } from './routes/donate.routes.js';
+import { stripeRouter, stripeWebhook } from './routes/stripe.routes.js';
 import { attachRealtime, onlineCount } from './realtime.js';
 import { getDailyWord, todayUtc } from './words.js';
 import { claudeEnabled } from './claude.js';
 import { budgetStatus } from './budget.js';
 import { scheduleBackups } from './backup.js';
+import { scheduleReconcile } from './reconcile.js';
 
 console.log(
   `[demarrage] node ${process.version} | NODE_ENV=${process.env.NODE_ENV} | ` +
@@ -41,6 +43,11 @@ app.post(
   '/api/billing/webhook',
   express.raw({ type: 'application/json', limit: '256kb' }),
   billingWebhook
+);
+app.post(
+  '/api/stripe/webhook',
+  express.raw({ type: 'application/json', limit: '256kb' }),
+  stripeWebhook
 );
 
 app.use(express.json({ limit: '64kb' }));
@@ -78,6 +85,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api/billing', billingRouter);
 app.use('/api/donate', donateRouter);
+app.use('/api/stripe', stripeRouter);
 app.use('/api', archiveRouter);
 app.use('/api', gameRouter);
 app.use('/api', leaderboardRouter);
@@ -133,6 +141,15 @@ getDailyWord();
 
 // Sauvegarde au démarrage puis toutes les 24 h.
 scheduleBackups();
+
+/*
+ * Filet de securite des abonnements.
+ *
+ * Le webhook fait foi, mais s'il se perd, un client peut etre preleve tout
+ * en perdant ses acces : l'echeance passe sans etre prolongee. Ce controle
+ * periodique recharge les abonnements dont l'echeance approche.
+ */
+scheduleReconcile();
 
 /* ------------------------------------------------------------------ *
  *  Garde-fous de démarrage : mieux vaut refuser de démarrer que de

@@ -19,7 +19,10 @@ export default function PremiumThanks() {
   const [error, setError] = useState('');
   const done = useRef(false);
 
+  // PayPal renvoie « subscription_id », Stripe « session_id » : une seule
+  // page de retour sert aux deux.
   const subscriptionId = params.get('subscription_id');
+  const sessionId = params.get('session_id');
 
   useEffect(() => {
     // React 18 monte deux fois en développement : sans ce garde, on
@@ -27,15 +30,16 @@ export default function PremiumThanks() {
     if (done.current) return;
     done.current = true;
 
-    if (!subscriptionId) {
+    if (!subscriptionId && !sessionId) {
       setState('error');
-      setError("PayPal n'a pas transmis d'identifiant d'abonnement.");
+      setError("Aucun identifiant de paiement n'a été transmis.");
       return;
     }
 
     (async () => {
       try {
-        await api.post('/billing/confirm', { subscriptionId });
+        if (sessionId) await api.post('/stripe/confirm', { sessionId });
+        else await api.post('/billing/confirm', { subscriptionId });
         await refreshProfile();
         setState('ok');
       } catch (err) {
@@ -43,7 +47,7 @@ export default function PremiumThanks() {
         setError(errorMessage(err));
       }
     })();
-  }, [subscriptionId, refreshProfile]);
+  }, [subscriptionId, sessionId, refreshProfile]);
 
   if (state === 'pending') {
     return (
@@ -64,7 +68,7 @@ export default function PremiumThanks() {
         <p className="muted small">{error}</p>
         <p className="muted small" style={{ marginTop: 12 }}>
           Si le paiement a bien été prélevé, tes droits s'ouvriront automatiquement d'ici quelques
-          minutes — PayPal nous prévient de son côté. Sinon, rien n'a été débité.
+          minutes — le prestataire nous prévient de son côté. Sinon, rien n'a été débité.
         </p>
         <div className="row" style={{ gap: 10, marginTop: 18, justifyContent: 'center' }}>
           <Link to="/premium" className="btn btn-ghost">

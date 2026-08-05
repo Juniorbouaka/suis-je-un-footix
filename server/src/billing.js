@@ -104,6 +104,59 @@ export async function syncSubscription(userId, subscriptionId, planKey = null) {
   return applySubscription(userId, subscription, planKey);
 }
 
+/* ------------------------------------------------------------------ *
+ *  Stripe
+ * ------------------------------------------------------------------ */
+
+/** Statuts Stripe qui ouvrent effectivement les droits. */
+const STRIPE_ACTIFS = new Set(['active', 'trialing', 'past_due']);
+
+/**
+ * Applique un abonnement Stripe à un compte.
+ *
+ * Même principe que côté PayPal : `current_period_end` donne l'échéance,
+ * et une résiliation (`cancel_at_period_end`) ne coupe rien sur le champ.
+ * `past_due` reste actif volontairement — un prélèvement en retard n'est pas
+ * une résiliation, Stripe réessaie plusieurs jours.
+ */
+export function applyStripeSubscription(userId, subscription, planKey = null) {
+  const status = subscription?.status || 'unknown';
+  const fin = subscription?.current_period_end;
+
+  let until = null;
+  if (Number.isFinite(fin)) {
+    const date = new Date(fin * 1000);
+    date.setUTCDate(date.getUTCDate() + GRACE_DAYS);
+    until = date.toISOString();
+  }
+
+  const current = db.prepare('SELECT premium_until FROM users WHERE id = ?').get(userId);
+  const nextUntil = until || current?.premium_until || null;
+  const actif = STRIPE_ACTIFS.has(status);
+
+  db.prepare(
+    `UPDATE users
+        SET is_premium = ?,
+            subscription_provider = 'stripe',
+            subscription_id = ?,
+            subscription_status = ?,
+            subscription_plan = COALESCE(?, subscription_plan),
+            premium_until = ?
+      WHERE id = ?`
+  ).run(
+    actif || (nextUntil && new Date(nextUntil) > new Date()) ? 1 : 0,
+    subscription?.id || null,
+    // On note la résiliation programmée : le joueur doit voir « premium
+    // jusqu'au … » plutôt que « abonné ».
+    subscription?.cancel_at_period_end ? 'CANCELLED' : status.toUpperCase(),
+    planKey,
+    nextUntil,
+    userId
+  );
+
+  return { status, premiumUntil: nextUntil, isPremium: actif };
+}
+
 /**
  * Idempotence des webhooks, en deux temps.
  *

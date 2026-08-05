@@ -19,6 +19,7 @@ import {
   paypalEnabled,
   verifyWebhookSignature,
 } from '../paypal.js';
+import { stripeEnabled } from '../stripe.js';
 
 export const billingRouter = Router();
 
@@ -35,16 +36,27 @@ const billingLimiter = rateLimit({
  * -------------------------------------------------------------- */
 
 billingRouter.get('/offer', (req, res) => {
+  // Une formule est proposable dès qu'AU MOINS un encaisseur sait la vendre.
+  const stripeOk = (cle) => stripeEnabled && Boolean(config.stripe.prices[cle]);
+
   res.json({
-    enabled: paypalEnabled,
+    // `enabled` reste vrai si l'un ou l'autre fonctionne : le client n'a pas
+    // à connaître le détail pour savoir s'il peut afficher l'offre.
+    enabled: Object.keys(PLANS).some((k) => Boolean(PLANS[k].planId()) || stripeOk(k)),
     currency: config.premium.currency,
     donateUrl: config.donateUrl || null,
+    providers: {
+      paypal: paypalEnabled,
+      stripe: stripeEnabled,
+    },
     plans: Object.values(PLANS).map((p) => ({
       key: p.key,
       label: p.label,
       price: p.price,
       period: p.period,
-      available: Boolean(p.planId()),
+      available: Boolean(p.planId()) || stripeOk(p.key),
+      paypal: Boolean(p.planId()),
+      stripe: stripeOk(p.key),
     })),
   });
 });

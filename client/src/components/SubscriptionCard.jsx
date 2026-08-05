@@ -40,7 +40,9 @@ export default function SubscriptionCard() {
     setBusy(true);
     setError('');
     try {
-      const { data } = await api.post('/billing/cancel');
+      // Chaque prestataire resilie chez lui : on suit celui qui a encaisse.
+      const route = billing?.provider === 'stripe' ? '/stripe/cancel' : '/billing/cancel';
+      const { data } = await api.post(route);
       setMessage(data.message);
       await refreshProfile();
     } catch (err) {

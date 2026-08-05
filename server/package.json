@@ -19,7 +19,9 @@
     "backup": "node -e \"import('./src/backup.js').then(m=>m.runBackup())\"",
     "paypal:check": "node scripts/paypal-check.mjs",
     "paypal:webhook": "node scripts/paypal-webhook.mjs",
-    "paypal:smoke": "node scripts/paypal-smoke.mjs"
+    "paypal:smoke": "node scripts/paypal-smoke.mjs",
+    "stripe:setup": "node scripts/stripe-setup.mjs",
+    "reconcile": "node -e \"import('./src/reconcile.js').then(m=>m.runReconcile())\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.68.0",
