@@ -375,27 +375,11 @@ gameRouter.get('/me/stats/detailed', requireAuth, (req, res) => {
   });
 });
 
-/* -------------------------------------------------------------- *
- *  POST /api/demo/guess — tutoriel, sans compte
- * -------------------------------------------------------------- */
-
-const DEMO_WORD = 'zidane';
-const demoLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false });
-
-gameRouter.post('/demo/guess', demoLimiter, async (req, res) => {
-  const check = validateGuess(req.body?.word);
-  if (!check.ok) return res.status(400).json({ error: check.error });
-
-  const evaluation = await evaluateProximity(check.word, DEMO_WORD, 'fr');
-  const found = normalizeWord(check.word) === DEMO_WORD;
-  const fb = found ? { label: 'TROUVÉ !', tier: 'found' } : feedbackFor(evaluation.score);
-
-  res.json({
-    word: check.word,
-    score: evaluation.score,
-    label: fb.label,
-    tier: fb.tier,
-    found,
-    description: found ? (await describePlayer(DEMO_WORD)).text : null,
-  });
-});
+/*
+ * Il n'y a plus de manche de démonstration ouverte à tous.
+ *
+ * Chaque proposition d'un visiteur anonyme déclenchait un appel facturé à
+ * Claude, sans compte à limiter ni partie à terminer : la porte était
+ * ouverte à qui voulait consommer le budget quotidien du jeu. Le plaisir de
+ * la découverte se paie maintenant au prix d'une inscription gratuite.
+ */
