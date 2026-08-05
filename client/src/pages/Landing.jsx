@@ -9,6 +9,7 @@ import Gauge from '../components/Gauge.jsx';
 import GuessList from '../components/GuessList.jsx';
 import Icon from '../components/Icon.jsx';
 import AdSlot from '../components/Ads.jsx';
+import SupportSection from '../components/SupportSection.jsx';
 
 /** Manche de démonstration, sans compte. */
 function Tutorial() {
@@ -221,6 +222,10 @@ export default function Landing() {
           <p>L’IA compare les joueurs par le sens, pas par l’orthographe.</p>
         </div>
       </div>
+
+      {/* Apres les arguments du jeu : on demande une fois qu'on a montre
+          ce qu'on propose, jamais avant. */}
+      <SupportSection />
 
       <AuthModal
         open={authOpen}
