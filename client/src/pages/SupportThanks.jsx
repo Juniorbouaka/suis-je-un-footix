@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, errorMessage } from '../lib/api.js';
 import Confetti from '../components/Confetti.jsx';
 import Icon from '../components/Icon.jsx';
+import { marquerDonateur } from '../components/SupportPrompt.jsx';
 
 /**
  * Retour de PayPal après un don.
@@ -36,6 +37,8 @@ export default function SupportThanks() {
       try {
         const { data } = await api.post('/donate/capture', { orderId });
         setMontant(data.amount);
+        // Il a donne : on ne le sollicitera plus jamais.
+        if (data.status === 'COMPLETED') marquerDonateur();
         setState(data.status === 'COMPLETED' ? 'ok' : 'error');
         if (data.status !== 'COMPLETED') setError(`Paiement non finalisé (${data.status}).`);
       } catch (err) {

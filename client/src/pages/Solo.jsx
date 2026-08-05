@@ -9,6 +9,7 @@ import Confetti from '../components/Confetti.jsx';
 import Icon from '../components/Icon.jsx';
 import ShareResult from '../components/ShareResult.jsx';
 import AdSlot from '../components/Ads.jsx';
+import SupportPrompt from '../components/SupportPrompt.jsx';
 
 function formatDuration(seconds) {
   const m = Math.floor(seconds / 60);
@@ -36,7 +37,7 @@ function Countdown() {
 }
 
 export default function Solo() {
-  const { refreshProfile } = useAuth();
+  const { refreshProfile, stats } = useAuth();
   const inputRef = useRef(null);
 
   const [guesses, setGuesses] = useState([]);
@@ -215,6 +216,12 @@ export default function Solo() {
             outcome={result.outcome || (surrendered ? 'surrendered' : 'found')}
             maxAttempts={data?.maxAttempts || 50}
           />
+
+          {/* Uniquement apres une victoire : demander a quelqu'un qui vient
+              d'echouer ou d'abandonner ne ferait que le braquer. */}
+          {result.outcome === 'found' && (
+            <SupportPrompt contexte="solo" serie={stats?.currentStreak ?? 0} />
+          )}
 
           <AdSlot slot="1234567890" />
 

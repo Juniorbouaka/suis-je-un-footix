@@ -2377,3 +2377,39 @@ a:hover {
   margin-top: 3px;
   color: var(--green-neon);
 }
+
+/* ------------------- invitation a soutenir le jeu -------------------
+   Discret par construction : une carte inline dans l'ecran de resultat,
+   jamais une fenetre modale. Une modale apres une victoire transforme un
+   moment de plaisir en peage.                                          */
+
+.support-prompt {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 15px;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--red) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 24%, transparent);
+  animation: rise-in 0.4s var(--ease) both;
+}
+
+.support-prompt-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 999px;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.support-prompt-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}

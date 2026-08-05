@@ -7,6 +7,7 @@ import GuessList from '../components/GuessList.jsx';
 import Confetti from '../components/Confetti.jsx';
 import Icon from '../components/Icon.jsx';
 import PremiumBadge from '../components/PremiumBadge.jsx';
+import SupportPrompt from '../components/SupportPrompt.jsx';
 
 /** Compte à rebours du tour : 15 s pour proposer. */
 function TurnClock({ deadline, active }) {
@@ -241,6 +242,9 @@ export default function Arena() {
               {bio.text}
             </div>
           )}
+
+          {/* Victoire ou match nul seulement. Apres une defaite, on se tait. */}
+          {(iWon || isDraw) && <SupportPrompt contexte="duel" />}
 
           <div className="row wrap" style={{ marginTop: 20, gap: 10, justifyContent: 'center' }}>
             <button className="btn" onClick={() => getSocket()?.emit('rematch')}>
