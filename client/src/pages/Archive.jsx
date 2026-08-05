@@ -45,9 +45,17 @@ function Statut({ day }) {
     );
   }
   if (day.inProgress) return <span className="pill">en cours</span>;
+  if (day.replayable) {
+    return (
+      <span className="pill pill-action">
+        <Icon name="play" size={12} /> à jouer
+      </span>
+    );
+  }
+  // Consultable mais pas jouable : le rejeu est reserve aux abonnes.
   return (
-    <span className="pill pill-action">
-      <Icon name="play" size={12} /> à jouer
+    <span className="pill faint">
+      <Icon name="crown" size={12} /> rejeu premium
     </span>
   );
 }
@@ -70,7 +78,7 @@ export default function Archive() {
           <h1 style={{ fontSize: 26 }}>Archives</h1>
           <p className="muted small">
             {aJouer > 0
-              ? `${aJouer} journée${aJouer > 1 ? 's' : ''} que tu n'as jamais jouée${aJouer > 1 ? 's' : ''}.`
+              ? `${aJouer} journée${aJouer > 1 ? 's' : ''} que tu peux encore jouer.`
               : 'Les joueurs mystères des jours précédents.'}
           </p>
         </div>
@@ -122,8 +130,8 @@ export default function Archive() {
             <div className="alert alert-info" style={{ marginTop: 16 }}>
               <div className="row row-between wrap" style={{ gap: 10 }}>
                 <span>
-                  Les journées plus anciennes sont réservées aux abonnés — et deviennent alors
-                  rejouables.
+                  Les journées plus anciennes sont réservées aux abonnés, qui peuvent aussi
+                  <strong> rejouer</strong> toutes celles qu'ils ont manquées.
                 </span>
                 <Link to="/premium" className="btn btn-sm">
                   <Icon name="crown" size={14} /> Débloquer

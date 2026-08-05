@@ -39,9 +39,25 @@ function daysBack(date) {
     .get(todayUtc(), date).n - 1;
 }
 
-/** La journée est-elle accessible à ce compte ? */
+/**
+ * La journée est-elle CONSULTABLE par ce compte ?
+ * Trois jours d'aperçu gratuit, tout l'historique pour les abonnés.
+ * Consulter ne coûte rien : les fiches des joueurs sont en cache.
+ */
 function canAccess(user, date) {
   return Boolean(user.is_premium) || daysBack(date) < FREE_ARCHIVE_DAYS;
+}
+
+/**
+ * La journée est-elle JOUABLE par ce compte ?
+ *
+ * Réservé aux abonnés, sans exception. Chaque proposition part vers l'API
+ * Claude et coûte quelques centimes : ouvrir le rejeu à tous multiplierait
+ * la facture par le nombre de journées archivées, sans contrepartie. La
+ * partie du jour, elle, reste gratuite pour tout le monde — c'est le jeu.
+ */
+function canPlay(user) {
+  return Boolean(user.is_premium);
 }
 
 function archiveGuesses(userId, date) {
@@ -128,8 +144,9 @@ archiveRouter.get('/archive', requireAuth, (req, res) => {
       result: played
         ? { attempts: row.attempts, seconds: row.seconds, score: row.score, outcome: row.outcome }
         : null,
-      // Une journée est rejouable s'il y a accès et ne l'a jamais faite.
-      replayable: !locked && !played,
+      // Rejouable = abonne ET jamais jouee ce jour-la. Le rejeu appelle
+      // l'API a chaque proposition : il reste reserve aux abonnes.
+      replayable: isPremium && !played,
       replay: replay
         ? { attempts: replay.attempts, seconds: replay.seconds, outcome: replay.outcome }
         : null,
@@ -169,6 +186,9 @@ archiveRouter.get('/archive/:date', requireAuth, async (req, res) => {
     difficulty: row.difficulty,
     category: row.category || null,
     maxAttempts: config.game.maxAttempts,
+    // Le client doit savoir s'il peut jouer, pour proposer l'abonnement
+    // plutot qu'un champ de saisie qui renverrait une erreur.
+    canPlay: canPlay(req.user),
     guesses: archiveGuesses(req.user.id, date),
     result,
     playedForReal: playedForReal(req.user.id, date),
@@ -212,8 +232,10 @@ archiveRouter.post(
     const day = db.prepare('SELECT * FROM daily_words WHERE date = ?').get(date);
     if (!day) return res.status(404).json({ error: 'Aucune partie ce jour-là.' });
 
-    if (!canAccess(req.user, date)) {
-      return res.status(402).json({ error: 'Cette journée fait partie des archives premium.' });
+    if (!canPlay(req.user)) {
+      return res
+        .status(402)
+        .json({ error: 'Rejouer les journées passées est réservé aux abonnés premium.' });
     }
     if (playedForReal(req.user.id, date)) {
       return res.status(409).json({ error: 'Tu as déjà joué cette journée le jour même.' });
@@ -309,8 +331,10 @@ archiveRouter.post('/archive/:date/surrender', requireAuth, async (req, res) => 
   const day = db.prepare('SELECT * FROM daily_words WHERE date = ?').get(date);
   if (!day) return res.status(404).json({ error: 'Aucune partie ce jour-là.' });
 
-  if (!canAccess(req.user, date)) {
-    return res.status(402).json({ error: 'Cette journée fait partie des archives premium.' });
+  if (!canPlay(req.user)) {
+    return res
+      .status(402)
+      .json({ error: 'Rejouer les journées passées est réservé aux abonnés premium.' });
   }
   if (archiveResult(req.user.id, date)) {
     return res.status(409).json({ error: 'Cette journée est déjà terminée.' });
@@ -340,8 +364,10 @@ archiveRouter.delete('/archive/:date/replay', requireAuth, (req, res) => {
   const date = String(req.params.date || '');
   if (!validDate(date)) return res.status(400).json({ error: 'Date invalide.' });
 
-  if (!canAccess(req.user, date)) {
-    return res.status(402).json({ error: 'Cette journée fait partie des archives premium.' });
+  if (!canPlay(req.user)) {
+    return res
+      .status(402)
+      .json({ error: 'Rejouer les journées passées est réservé aux abonnés premium.' });
   }
 
   db.prepare('DELETE FROM archive_guesses WHERE user_id = ? AND date = ?').run(req.user.id, date);

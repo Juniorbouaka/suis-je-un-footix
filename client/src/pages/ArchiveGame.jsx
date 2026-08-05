@@ -140,6 +140,9 @@ export default function ArchiveGame() {
 
   const finished = Boolean(result);
   const maxAttempts = data?.maxAttempts || 50;
+  // Le serveur refuserait la proposition : autant proposer l'abonnement
+  // plutot qu'un champ de saisie qui renverrait une erreur.
+  const bloque = data?.canPlay === false && !finished;
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -155,6 +158,28 @@ export default function ArchiveGame() {
           <Icon name="repeat" size={14} /> Rejeu — hors classement
         </span>
       </div>
+
+      {bloque && (
+        <div className="card center" style={{ marginBottom: 16 }}>
+          <span className="premium-hero-icon">
+            <Icon name="crown" size={30} strokeWidth={1.6} />
+          </span>
+          <h2 style={{ fontSize: 20, margin: '12px 0 8px' }}>Rejouer, c'est premium</h2>
+          <p className="muted small" style={{ maxWidth: 420, margin: '0 auto' }}>
+            Chaque proposition est évaluée par une IA, et chaque évaluation a un coût. Le joueur
+            du jour reste gratuit pour tout le monde ; rejouer les journées passées est réservé
+            aux abonnés.
+          </p>
+          <div className="row wrap" style={{ gap: 10, marginTop: 18, justifyContent: 'center' }}>
+            <Link to="/premium" className="btn">
+              <Icon name="crown" size={15} /> Découvrir le premium
+            </Link>
+            <Link to="/solo" className="btn btn-ghost">
+              Jouer la partie du jour
+            </Link>
+          </div>
+        </div>
+      )}
 
       {data?.playedForReal && (
         <div className="alert alert-info" style={{ marginBottom: 16 }}>
@@ -202,7 +227,7 @@ export default function ArchiveGame() {
             </div>
           )}
         </div>
-      ) : (
+      ) : bloque ? null : (
         <>
           <div className="card" style={{ marginBottom: 16 }}>
             <Gauge score={last?.score ?? null} label={last?.label} tier={last?.tier} pending={busy} />
