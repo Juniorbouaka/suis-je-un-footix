@@ -74,9 +74,17 @@ for (const [a, b, attendu] of CASES) {
   }
 }
 
+/*
+ * Dollars par million de jetons, [entrée, sortie].
+ *
+ * Attention à Sonnet 5 : 2 / 10 est un tarif de lancement qui court jusqu'au
+ * 31 août 2026. Ensuite ce sera 3 / 15, soit la moitié en plus sur la ligne
+ * « $ / 1000 propositions » affichée en bas. À corriger le jour venu, sinon
+ * ce banc d'essai annoncera un coût qui n'existe plus.
+ */
 const PRICE = {
   'claude-opus-4-8': [5, 25],
-  'claude-sonnet-5': [2, 10],
+  'claude-sonnet-5': [2, 10], // 3 / 15 après le 31/08/2026
   'claude-haiku-4-5': [1, 5],
 };
 

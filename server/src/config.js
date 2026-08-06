@@ -32,11 +32,38 @@ export const config = {
     refreshTtl: process.env.JWT_REFRESH_TTL || '30d',
   },
 
+  /*
+   * L'évaluateur.
+   *
+   * Sonnet plutôt qu'Opus : à qualité de jauge égale, la proposition coûte
+   * 2,56 $ les mille au lieu de 6,58 $ — le poste de dépense principal du jeu
+   * divisé par deux et demi. Le banc d'essai (tests/compare-models.mjs) est
+   * ce qui a tranché, sur huit paires de joueurs :
+   *
+   *   buffon/casillas    Opus 83   Sonnet 65   Haiku 0
+   *   messi/ronaldo      Opus 72   Sonnet 60   Haiku 10
+   *   gomis/gomes        Opus 55   Sonnet 10   Haiku 15
+   *
+   * Sonnet comprime un peu l'échelle mais garde l'ORDRE, et c'est l'ordre qui
+   * fait la jauge : proche reste proche, loin reste loin. Il est même plus
+   * juste qu'Opus sur les pièges orthographiques.
+   *
+   * Haiku, moins cher encore, a été écarté : il note zéro une proposition
+   * quasi parfaite. La jauge annoncerait « glacial » à un joueur à un pas du
+   * but — et six cas sur huit passant sous le seuil d'escalade, chaque
+   * proposition paierait Haiku PUIS Opus. Moins cher à la ligne, plus cher au
+   * total, et le jeu cassé au passage.
+   */
   claude: {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
-    model: process.env.CLAUDE_MODEL || 'claude-opus-4-8',
+    model: process.env.CLAUDE_MODEL || 'claude-sonnet-5',
     timeoutMs: Number(process.env.CLAUDE_TIMEOUT_MS || 20000),
-    // Modèle de secours quand le petit modèle ne reconnait visiblement pas un joueur
+    /*
+     * Modèle de secours quand le petit modèle ne reconnait visiblement pas un
+     * joueur. Cette échelle existait déjà mais dormait : les deux variables
+     * pointaient sur le même modèle, et needsEscalation() rend la main tout
+     * de suite dans ce cas. Elle s'allume maintenant qu'elles diffèrent.
+     */
     escalationModel: process.env.CLAUDE_ESCALATION_MODEL || 'claude-opus-4-8',
     escalationBelow: Number(process.env.CLAUDE_ESCALATION_BELOW || 20),
   },
