@@ -31,10 +31,10 @@ Une seule URL à ouvrir : **http://localhost:5173** (le front proxifie `/api` et
 
 | Réglage (`server/.env`) | Valeur | Rôle |
 |---|---|---|
-| `CLAUDE_MODEL` | `claude-haiku-4-5` | modèle principal, le moins cher |
+| `CLAUDE_MODEL` | `claude-sonnet-5` | modèle principal |
 | `CLAUDE_ESCALATION_MODEL` | `claude-opus-4-8` | reprend la main quand le petit modèle se trompe |
 | `CLAUDE_ESCALATION_BELOW` | `20` | seuil de déclenchement de l'escalade |
-| `DAILY_API_BUDGET` | `3000` | plafond d'appels par jour, puis bascule en mode secours |
+| `DAILY_API_BUDGET` | `7700` | plafond d'appels par jour ; au-delà, la proposition est **refusée** |
 
 Trois mécanismes se combinent pour tenir la qualité au prix du petit modèle :
 
@@ -51,11 +51,35 @@ des appels ; un nom qui n'est pas un joueur (« pizza ») n'escalade jamais.
 **3. Le cache versionné.** Chaque couple évalué est stocké. La clé embarque `PROMPT_VERSION` :
 modifier le prompt d'évaluation invalide automatiquement les anciens scores, sans purge manuelle.
 
-Coût constaté, par tranche de 1000 propositions : Haiku ~1,01 $, Sonnet 5 ~2,20 $, Opus 4.8 ~5,71 $.
+Coût constaté, par tranche de 1000 propositions : Haiku ~1,06 $, Sonnet 5 ~2,56 $, Opus 4.8 ~6,58 $.
 Le script `node tests/compare-models.mjs` rejoue la comparaison sur des paires connues.
+⚠️ Le tarif Sonnet est un prix de lancement jusqu'au 31 août 2026 ; ensuite ~3,84 $.
 
-Sans `ANTHROPIC_API_KEY`, le jeu bascule sur un évaluateur local qui compare les lettres : jouable,
-mais sans intérêt. Un bandeau « mode secours » le signale dans l'interface.
+**Haiku a été essayé et écarté** : il note 0 une proposition quasi parfaite (Casillas contre Buffon
+vaut 83 chez Opus, 65 chez Sonnet, 0 chez Haiku). Moins cher à la ligne, mais la jauge ne veut plus
+rien dire — et six cas de test sur huit passant sous le seuil d'escalade, chaque proposition aurait
+payé Haiku *puis* Opus.
+
+### Quand l'évaluateur ne peut pas répondre
+
+Clé absente, plafond atteint, panne ou dépassement de délai : le jeu **refuse la proposition** et le
+dit. Il ne consomme pas de chance, n'écrit rien en base, et rien ne part au classement. En duel, le
+chrono du tour est relancé et c'est toujours au même joueur de jouer. Une proposition déjà évaluée
+reste servie depuis le cache : elle ne coûte rien.
+
+Il y avait avant un « évaluateur de secours » qui comparait les lettres faute de savoir comparer le
+sens. Il a été supprimé, parce qu'il ne rendait pas des scores approximatifs mais **inversés** :
+
+| Proposition / secret | Attendu | Ancien secours |
+|---|---|---|
+| platini / zidane | haut | 0 |
+| buffon / casillas | haut | 0 |
+| gomis / gomes | **bas** | **41** |
+| ronaldo / ronaldinho | **bas** | **57** |
+
+Toutes les bonnes propositions à zéro, et les pièges orthographiques — ce que le jeu est fait pour
+punir — en tête. Ces notes partaient dans `daily_results` : une panne de vingt minutes salissait des
+journées de classement pour toujours. Un refus honnête vaut mieux qu'un score faux.
 
 ## La base de joueurs
 

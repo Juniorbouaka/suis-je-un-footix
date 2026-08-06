@@ -304,12 +304,22 @@ archiveRouter.post(
     }
 
     const sheet = await describePlayer(day.word);
-    const evaluation = await evaluateProximity(
-      check.word,
-      day.word,
-      'fr',
-      sheet.usable ? sheet.text : null
-    );
+
+    // Même règle qu'en solo : on refuse plutôt que d'inventer un score. Rien
+    // n'est enregistré, donc la partie d'entraînement n'est pas entamée et le
+    // crédit du jour n'est pas consommé.
+    let evaluation;
+    try {
+      evaluation = await evaluateProximity(
+        check.word,
+        day.word,
+        'fr',
+        sheet.usable ? sheet.text : null
+      );
+    } catch (err) {
+      if (err.name !== 'EvaluateurIndisponible') throw err;
+      return res.status(503).json({ error: err.message, retryable: true });
+    }
     const found = normalized === normalizeWord(day.word);
     const attempt = previous.length + 1;
     const fb = found ? { label: 'TROUVÉ !', tier: 'found' } : feedbackFor(evaluation.score);

@@ -404,7 +404,25 @@ export function attachRealtime(httpServer) {
 
       const sheet = await describePlayer(target);
       const identity = sheet.usable ? sheet.text : null;
-      const evaluation = await evaluateProximity(check.word, target, 'fr', identity);
+
+      /*
+       * L'évaluateur peut refuser (plafond de dépense, panne). En duel, rendre
+       * la main ne suffit pas : le chrono du tour a été arrêté juste au-dessus,
+       * et sans le relancer la partie resterait figée pour les deux joueurs.
+       * On le rearme donc, la proposition n'est pas comptée, et c'est toujours
+       * au même joueur de jouer.
+       */
+      let evaluation;
+      try {
+        evaluation = await evaluateProximity(check.word, target, 'fr', identity);
+      } catch (err) {
+        if (err.name !== 'EvaluateurIndisponible') throw err;
+        const encore = rooms.get(room.id);
+        if (encore && encore.status === 'playing' && encore.turn === user.id) {
+          startTurnTimer(io, encore);
+        }
+        return socket.emit('error-message', { error: err.message });
+      }
 
       // BUG C : la partie a pu se terminer pendant l'appel réseau.
       const live = rooms.get(room.id);

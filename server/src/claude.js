@@ -106,41 +106,37 @@ function writeCache(key, { score, explanation, source }) {
 }
 
 /* ------------------------------------------------------------------ *
- *  Évaluateur de secours (aucune clé API / panne / timeout)
+ *  Quand l'évaluateur ne peut pas répondre
  * ------------------------------------------------------------------ */
 
-function bigrams(s) {
-  const out = new Set();
-  for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2));
-  return out;
-}
-
 /**
- * Similarité de Dice sur les bigrammes + bonus de préfixe partagé.
- * Ce n'est PAS de la sémantique : c'est un filet de sécurité pour que le jeu
- * reste jouable si Claude est indisponible.
+ * L'évaluateur ne peut pas répondre.
+ *
+ * Remplace l'ancien « évaluateur de secours », qui comparait l'ORTHOGRAPHE
+ * (similarité de Dice sur les bigrammes) faute de savoir comparer le sens.
+ * Ce filet ne rendait pas des scores approximatifs : il les rendait à
+ * l'envers. Mesuré sur nos propres cas de test —
+ *
+ *   platini / zidane      attendu haut →  0
+ *   buffon  / casillas    attendu haut →  0
+ *   messi   / ronaldo     attendu haut →  0
+ *   gomis   / gomes       attendu BAS  → 41
+ *   ronaldo / ronaldinho  attendu BAS  → 57
+ *
+ * — toutes les bonnes propositions à zéro, et les deux pièges orthographiques
+ * en tête. Il récompensait exactement ce que le jeu est fait pour punir. Ces
+ * scores partaient ensuite dans daily_results et au classement : une panne de
+ * vingt minutes salissait des journées pour toujours.
+ *
+ * Mieux vaut refuser que mentir. On lève, l'appelant rend la main au joueur
+ * sans lui consommer de chance, et rien n'est enregistré.
  */
-function fallbackEvaluate(userWord, secretWord) {
-  const a = normalizeWord(userWord);
-  const b = normalizeWord(secretWord);
-  if (a === b) return { score: 100, explanation: 'Mot identique.', source: 'fallback' };
-
-  const A = bigrams(a);
-  const B = bigrams(b);
-  let shared = 0;
-  for (const g of A) if (B.has(g)) shared++;
-  const dice = (A.size + B.size) === 0 ? 0 : (2 * shared) / (A.size + B.size);
-
-  let prefix = 0;
-  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++;
-  const prefixBonus = Math.min(prefix, 5) * 2;
-
-  const score = Math.max(0, Math.min(78, Math.round(dice * 70 + prefixBonus)));
-  return {
-    score,
-    explanation: 'Évaluation approximative (service sémantique indisponible).',
-    source: 'fallback',
-  };
+export class EvaluateurIndisponible extends Error {
+  constructor(cause) {
+    super("L'évaluateur est momentanément indisponible. Réessaie dans un instant.");
+    this.name = 'EvaluateurIndisponible';
+    this.cause = cause; // 'budget' | 'panne' | 'cle-absente'
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -313,7 +309,12 @@ export async function describePlayer(word) {
 
 /**
  * Point d'entrée unique : renvoie { score, explanation, source, cached }.
- * Ne lève jamais — bascule sur l'évaluateur de secours en cas de problème.
+ *
+ * LÈVE `EvaluateurIndisponible` quand l'IA ne peut pas répondre — clé absente,
+ * plafond de dépense atteint, panne ou dépassement de délai. C'est voulu :
+ * l'ancien comportement (un score inventé à partir de l'orthographe) était
+ * pire que l'absence de réponse, et il polluait le classement. Les trois
+ * appelants attrapent et rendent la main au joueur sans rien consommer.
  */
 export async function evaluateProximity(userWord, secretWord, language = 'fr', secretContext = null) {
   const a = normalizeWord(userWord);
@@ -328,7 +329,19 @@ export async function evaluateProximity(userWord, secretWord, language = 'fr', s
   const hit = readCache(key);
   if (hit && hit.source === 'claude') return hit;
 
-  if (client && hasBudget()) {
+  if (!client) throw new EvaluateurIndisponible('cle-absente');
+
+  /*
+   * Plafond atteint. Une proposition DÉJÀ évaluée reste servie depuis le
+   * cache — elle ne coûte rien, donc le plafond ne la concerne pas — mais
+   * une nouvelle est refusée plutôt qu'inventée.
+   */
+  if (!hasBudget()) {
+    if (hit) return hit;
+    throw new EvaluateurIndisponible('budget');
+  }
+
+  {
     try {
       consume();
       let result = await claudeEvaluate(userWord, secretWord, language, config.claude.model, secretContext);
@@ -352,11 +365,10 @@ export async function evaluateProximity(userWord, secretWord, language = 'fr', s
       return { ...result, cached: false };
     } catch (err) {
       console.warn('[claude] évaluation indisponible →', err.message);
+      // Panne, dépassement de délai, refus du modèle : on ne devine pas.
+      // Un résultat déjà en cache reste bon à servir, lui.
+      if (hit) return hit;
+      throw new EvaluateurIndisponible('panne');
     }
   }
-
-  if (hit) return hit;
-  const fallback = fallbackEvaluate(userWord, secretWord);
-  writeCache(key, fallback);
-  return { ...fallback, cached: false };
 }

@@ -189,7 +189,20 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
   // Un seul appel par jour grâce au cache, puis réutilisée à chaque proposition.
   const sheet = await describePlayer(daily.word);
   const identity = sheet.usable ? sheet.text : null;
-  const evaluation = await evaluateProximity(check.word, daily.word, 'fr', identity);
+
+  /*
+   * L'évaluateur peut refuser de répondre (plafond de dépense, panne). On rend
+   * la main SANS rien enregistrer : pas de proposition en base, donc pas de
+   * chance consommée et rien qui parte au classement. Le joueur retrouve sa
+   * partie intacte. Inventer un score serait pire que ce refus.
+   */
+  let evaluation;
+  try {
+    evaluation = await evaluateProximity(check.word, daily.word, 'fr', identity);
+  } catch (err) {
+    if (err.name !== 'EvaluateurIndisponible') throw err;
+    return res.status(503).json({ error: err.message, retryable: true });
+  }
   const found = normalized === normalizeWord(daily.word);
   const attempt =
     db.prepare('SELECT COUNT(*) AS n FROM guesses WHERE user_id = ? AND date = ?').get(req.user.id, date).n + 1;

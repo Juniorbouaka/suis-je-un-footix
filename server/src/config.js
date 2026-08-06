@@ -152,9 +152,21 @@ export const config = {
     from: process.env.MAIL_FROM || 'Suis-je un footix ? <onboarding@resend.dev>',
   },
 
-  // Plafond de dépense : nombre maximum d'appels Claude par jour (UTC).
-  // Au-delà, le jeu bascule tout seul sur l'évaluateur de secours.
-  dailyApiBudget: Number(process.env.DAILY_API_BUDGET || 3000),
+  /*
+   * Plafond de dépense : nombre maximum d'appels Claude par jour (UTC).
+   *
+   * Au-delà, le jeu ne bascule plus sur un évaluateur de secours — il n'y en a
+   * plus. Il REFUSE la proposition, sans consommer de chance et sans rien
+   * enregistrer. L'ancien secours notait l'orthographe faute de savoir noter le
+   * sens : il donnait 0 à « Platini » contre « Zidane » et 41 à « Gomis »
+   * contre « Gomes », puis envoyait ces notes au classement.
+   *
+   * 7700 et non 3000 : le passage à Sonnet a divisé le coût par appel par 2,5.
+   * À dépense quotidienne inchangée (~19,70 $ au plafond), le jeu encaisse deux
+   * fois et demie plus de propositions avant de devoir dire non. C'est un
+   * plafond, pas une facture : une journée calme ne coûte que ce qu'elle joue.
+   */
+  dailyApiBudget: Number(process.env.DAILY_API_BUDGET || 7700),
 
   /*
    * Abonnement premium, encaissé par PayPal.
