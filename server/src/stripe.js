@@ -20,6 +20,42 @@ export const stripeEnabled = Boolean(config.stripe.secretKey);
 /** La clé est-elle une clé de test ? Sert à l'affichage et aux garde-fous. */
 export const stripeIsLive = config.stripe.secretKey.startsWith('sk_live_');
 
+/* ------------------------------------------------------------------ *
+ *  Clé refusée : Stripe se coupe tout seul
+ *
+ *  Une clé peut mourir en cours de route — renouvelée dans le tableau de
+ *  bord, révoquée, ou simplement mal recopiée dans les variables. Stripe
+ *  répond alors 401 à chaque appel, et le joueur, lui, voit un bouton bien
+ *  visible qui mène à un carré rouge. Il essaie deux fois, puis il s'en va :
+ *  on a perdu un don, et on ne l'apprend que par les logs.
+ *
+ *  Dès le premier refus d'authentification, on retient l'information : les
+ *  routes cessent d'ouvrir des paiements et surtout `/api/donate/options`
+ *  cesse d'annoncer la carte, si bien que le bouton disparaît de lui-même et
+ *  que PayPal reprend la place. Mieux vaut un moyen de paiement en moins
+ *  qu'un moyen de paiement qui échoue.
+ *
+ *  L'oubli est automatique : le premier appel qui repasse remet le compteur
+ *  à zéro. En pratique c'est le redémarrage qui suit la correction de la
+ *  variable, mais rien n'oblige à redémarrer si la clé revient d'elle-même.
+ * ------------------------------------------------------------------ */
+
+let refusDepuis = null;
+
+/** Stripe est-il configuré ET en état de répondre ? */
+export function stripeUsable() {
+  return stripeEnabled && !refusDepuis;
+}
+
+/** État détaillé, pour le tableau de bord et la route /status. */
+export function stripeAuthState() {
+  return {
+    configured: stripeEnabled,
+    usable: stripeUsable(),
+    rejectedSince: refusDepuis ? new Date(refusDepuis).toISOString() : null,
+  };
+}
+
 /**
  * Aplatit un objet en paramètres de formulaire à la mode Stripe :
  * { a: { b: 1 }, c: [{ d: 2 }] } devient a[b]=1&c[0][d]=2
@@ -66,10 +102,31 @@ export async function stripeRequest(method, path, corps, entetes = {}) {
 
   if (!res.ok) {
     const detail = data?.error?.message || `HTTP ${res.status}`;
+
+    /*
+     * 401 = la clé elle-même est refusée (expirée, révoquée, mal recopiée).
+     * C'est la seule erreur qui condamne TOUS les appels suivants : un 400
+     * ou un 402 ne concerne que la requête en cours, et couper Stripe pour
+     * un montant invalide serait absurde.
+     */
+    if (res.status === 401 && !refusDepuis) {
+      refusDepuis = Date.now();
+      console.error(
+        `[stripe] clé refusée (${detail}) — le paiement par carte est désactivé ` +
+          `jusqu'à ce qu'un appel repasse. Corrige STRIPE_SECRET_KEY chez l'hébergeur.`
+      );
+    }
+
     const err = new Error(`Stripe ${method} ${path} → ${detail}`);
     err.status = res.status;
     err.body = data;
     throw err;
+  }
+
+  // Un appel qui aboutit prouve que la clé vaut de nouveau quelque chose.
+  if (refusDepuis) {
+    console.log('[stripe] la clé répond de nouveau — paiement par carte réactivé.');
+    refusDepuis = null;
   }
 
   return data;

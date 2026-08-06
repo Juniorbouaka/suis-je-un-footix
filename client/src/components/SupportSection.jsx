@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import Icon from './Icon.jsx';
@@ -37,6 +37,7 @@ export default function SupportSection() {
   const [busy, setBusy] = useState(0);
   const [error, setError] = useState('');
   const kind = portefeuille();
+  const queryClient = useQueryClient();
 
   const { data } = useQuery({
     queryKey: ['donate-stats'],
@@ -73,6 +74,9 @@ export default function SupportSection() {
     } catch (err) {
       setError(errorMessage(err));
       setBusy(0);
+      // Le serveur a peut-être desactivé la carte : on relit les moyens de
+      // paiement plutôt que de laisser un raccourci qui ne mène nulle part.
+      queryClient.invalidateQueries({ queryKey: ['donate-options'] });
     }
   };
 

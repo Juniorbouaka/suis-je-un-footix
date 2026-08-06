@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import Icon from '../components/Icon.jsx';
@@ -81,6 +81,7 @@ export default function Premium() {
   // mieux que « Payer par carte » quand on n'aura justement pas de carte à
   // sortir. La page de paiement Stripe affiche le portefeuille en premier.
   const kind = portefeuille();
+  const queryClient = useQueryClient();
 
   const { data: offer, isLoading } = useQuery({
     queryKey: ['billing-offer'],
@@ -106,6 +107,9 @@ export default function Premium() {
     } catch (err) {
       setError(errorMessage(err));
       setBusy('');
+      // Une clé refusée retire la carte de l'offre : on la relit pour que le
+      // bouton s'efface au profit de PayPal, sans recharger la page.
+      queryClient.invalidateQueries({ queryKey: ['billing-offer'] });
     }
   };
 

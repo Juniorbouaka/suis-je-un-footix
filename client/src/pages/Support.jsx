@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, errorMessage } from '../lib/api.js';
 import Icon from '../components/Icon.jsx';
 import SupportWall from '../components/SupportWall.jsx';
@@ -30,6 +30,7 @@ export default function Support() {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const kind = portefeuille();
+  const queryClient = useQueryClient();
 
   const { data: options, isLoading } = useQuery({
     queryKey: ['donate-options'],
@@ -61,6 +62,12 @@ export default function Support() {
     } catch (err) {
       setError(errorMessage(err));
       setBusy('');
+      /*
+       * Le serveur vient peut-être de constater que sa clé est refusée. On
+       * relit les moyens de paiement : le bouton mort disparaît sous les
+       * yeux du donateur, au lieu de l'inviter à réessayer pour rien.
+       */
+      queryClient.invalidateQueries({ queryKey: ['donate-options'] });
     }
   };
 

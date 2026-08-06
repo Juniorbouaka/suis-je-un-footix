@@ -19,7 +19,7 @@ import {
   paypalEnabled,
   verifyWebhookSignature,
 } from '../paypal.js';
-import { stripeEnabled } from '../stripe.js';
+import { stripeUsable } from '../stripe.js';
 
 export const billingRouter = Router();
 
@@ -37,7 +37,9 @@ const billingLimiter = rateLimit({
 
 billingRouter.get('/offer', (req, res) => {
   // Une formule est proposable dès qu'AU MOINS un encaisseur sait la vendre.
-  const stripeOk = (cle) => stripeEnabled && Boolean(config.stripe.prices[cle]);
+  // `stripeUsable` : une clé refusée efface le bouton carte, et PayPal — s'il
+  // est configuré — reprend seul la vente. L'offre ne disparaît pas.
+  const stripeOk = (cle) => stripeUsable() && Boolean(config.stripe.prices[cle]);
 
   res.json({
     // `enabled` reste vrai si l'un ou l'autre fonctionne : le client n'a pas

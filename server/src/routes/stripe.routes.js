@@ -16,8 +16,10 @@ import {
   createDonationSession,
   getCheckoutSession,
   getSubscription,
+  stripeAuthState,
   stripeEnabled,
   stripeIsLive,
+  stripeUsable,
   verifyWebhookSignature,
 } from '../stripe.js';
 
@@ -38,6 +40,20 @@ const limiter = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * Le message quand la carte n'est pas ouverte.
+ *
+ * Deux causes, deux phrases : rien n'a jamais été branché, ou la clé vient
+ * d'être refusée. Dans le second cas on renvoie vers PayPal — le joueur
+ * voulait donner, il ne doit pas repartir les mains vides à cause d'une
+ * variable d'environnement.
+ */
+function indisponible() {
+  return stripeEnabled
+    ? 'Le paiement par carte est momentanément indisponible. PayPal fonctionne normalement.'
+    : "Le paiement par carte n'est pas encore ouvert.";
+}
+
 /** Retrouve la clé de formule à partir d'un identifiant de prix Stripe. */
 function planPourPrix(priceId) {
   if (priceId && priceId === config.stripe.prices.monthly) return 'monthly';
@@ -50,8 +66,8 @@ function planPourPrix(priceId) {
  * -------------------------------------------------------------- */
 
 stripeRouter.post('/subscribe', requireAuth, limiter, async (req, res) => {
-  if (!stripeEnabled) {
-    return res.status(503).json({ error: "Le paiement par carte n'est pas encore ouvert." });
+  if (!stripeUsable()) {
+    return res.status(503).json({ error: indisponible() });
   }
   if (req.user.is_premium) {
     return res.status(409).json({ error: 'Tu es déjà abonné.' });
@@ -76,6 +92,7 @@ stripeRouter.post('/subscribe', requireAuth, limiter, async (req, res) => {
     res.json({ url });
   } catch (err) {
     console.error('[stripe] session d’abonnement :', err.message);
+    if (!stripeUsable()) return res.status(503).json({ error: indisponible() });
     res.status(502).json({ error: "Stripe n'a pas pu ouvrir le paiement. Réessaie." });
   }
 });
@@ -148,8 +165,8 @@ stripeRouter.post('/cancel', requireAuth, limiter, async (req, res) => {
  * -------------------------------------------------------------- */
 
 stripeRouter.post('/donate', limiter, async (req, res) => {
-  if (!stripeEnabled) {
-    return res.status(503).json({ error: "Le paiement par carte n'est pas encore ouvert." });
+  if (!stripeUsable()) {
+    return res.status(503).json({ error: indisponible() });
   }
 
   const n = Number(req.body?.amount);
@@ -179,6 +196,9 @@ stripeRouter.post('/donate', limiter, async (req, res) => {
     res.json({ orderId: id, url });
   } catch (err) {
     console.error('[stripe] session de don :', err.message);
+    // Si c'est la clé qui vient d'être refusée, « réessaie » serait un
+    // mensonge : le prochain essai échouera pareil.
+    if (!stripeUsable()) return res.status(503).json({ error: indisponible() });
     res.status(502).json({ error: "Stripe n'a pas pu ouvrir le paiement. Réessaie." });
   }
 });
@@ -321,8 +341,14 @@ export async function stripeWebhook(req, res) {
  * -------------------------------------------------------------- */
 
 stripeRouter.get('/status', (req, res) => {
+  const auth = stripeAuthState();
   res.json({
+    // `enabled` reste ce qu'il a toujours dit : une clé est configurée.
     enabled: stripeEnabled,
+    // `usable` dit si elle répond encore. C'est la ligne à regarder quand
+    // le bouton carte a disparu du site sans qu'on ait rien changé.
+    usable: auth.usable,
+    rejectedSince: auth.rejectedSince,
     live: stripeEnabled && stripeIsLive,
     plans: {
       monthly: Boolean(config.stripe.prices.monthly),

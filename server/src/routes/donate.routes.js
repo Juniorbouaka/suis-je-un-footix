@@ -10,7 +10,7 @@ import {
   getOrder,
   paypalEnabled,
 } from '../paypal.js';
-import { stripeEnabled } from '../stripe.js';
+import { stripeUsable } from '../stripe.js';
 
 export const donateRouter = Router();
 
@@ -58,11 +58,16 @@ donateRouter.get('/options', (req, res) => {
   res.json({
     // Vrai dès qu'UN encaisseur sait prendre l'argent : le client n'a pas
     // à connaître le détail pour décider s'il affiche la page.
-    enabled: paypalEnabled || stripeEnabled,
+    enabled: paypalEnabled || stripeUsable(),
     providers: {
       paypal: paypalEnabled,
-      // Stripe porte le paiement rapide : Apple Pay, Google Pay et carte.
-      stripe: stripeEnabled,
+      /*
+       * Stripe porte le paiement rapide : Apple Pay, Google Pay et carte.
+       * `stripeUsable` et non `stripeEnabled` : une clé refusée retire le
+       * bouton au lieu de mener à une erreur rouge. Mieux vaut un moyen de
+       * paiement en moins qu'un moyen de paiement qui échoue.
+       */
+      stripe: stripeUsable(),
     },
     currency: 'EUR',
     amounts: config.donations.amounts,
