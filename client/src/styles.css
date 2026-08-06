@@ -2715,6 +2715,22 @@ a:hover {
   }
 }
 
+/* ------------------ resiliation, bas du profil ---------------------
+   Volontairement neutre, pas rouge : resilier ne detruit rien et se
+   defait en se reabonnant. Le rouge est reserve a la suppression de
+   compte, juste en dessous, qui est la seule action irreversible de la
+   page. Une marge un peu large la detache du bloc precedent.        */
+
+.resiliation {
+  margin-bottom: 18px;
+  border-style: dashed;
+}
+
+.resiliation h2 .icon {
+  color: var(--amber);
+  margin-right: 4px;
+}
+
 /* Lien « Soutenir » de l'en-tete : present en permanence, jamais criard. */
 .nav-support {
   color: var(--red);

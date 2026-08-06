@@ -1,6 +1,4 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api, errorMessage } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import Icon from './Icon.jsx';
 
@@ -15,42 +13,20 @@ function jour(iso) {
 }
 
 /**
- * L'abonnement, vu du profil.
+ * L'abonnement, vu du profil — l'ÉTAT seulement.
+ *
+ * Formule, échéance, résiliation en cours : ce qu'on veut savoir d'un coup
+ * d'œil en haut de page. Le bouton qui résilie vit dans SubscriptionCancel,
+ * tout en bas, parce que c'est là qu'on va le chercher.
  *
  * Une résiliation ne coupe rien sur le champ : la période payée va à son
  * terme. Le libellé doit le dire clairement, sinon le joueur croit avoir
  * perdu ce qu'il a payé et vient se plaindre.
  */
 export default function SubscriptionCard() {
-  const { profile, isPremium, refreshProfile } = useAuth();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+  const { profile, isPremium } = useAuth();
 
   const billing = profile?.billing;
-
-  const resilier = async () => {
-    if (
-      !window.confirm(
-        "Résilier ton abonnement ? Tes avantages restent actifs jusqu'à la fin de la période déjà payée."
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      // Chaque prestataire resilie chez lui : on suit celui qui a encaisse.
-      const route = billing?.provider === 'stripe' ? '/stripe/cancel' : '/billing/cancel';
-      const { data } = await api.post(route);
-      setMessage(data.message);
-      await refreshProfile();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   if (!isPremium) {
     return (
@@ -106,23 +82,16 @@ export default function SubscriptionCard() {
           </p>
         </div>
 
+        {/* L'ACTION vit en bas de page, dans sa propre section : c'est là
+            qu'on cherche à résilier, et un geste qui engage ne doit pas
+            exister à deux endroits — deux chemins, deux fois plus d'occasions
+            qu'ils divergent. Ici, seulement un renvoi. */}
         {!resilie && (
-          <button className="btn btn-ghost btn-sm" onClick={resilier} disabled={busy}>
-            {busy ? 'Résiliation…' : 'Résilier'}
-          </button>
+          <a href="#abonnement" className="btn btn-ghost btn-sm">
+            Gérer
+          </a>
         )}
       </div>
-
-      {message && (
-        <div className="alert alert-info" style={{ marginTop: 12 }}>
-          {message}
-        </div>
-      )}
-      {error && (
-        <div className="alert alert-error" style={{ marginTop: 12 }}>
-          {error}
-        </div>
-      )}
     </div>
   );
 }

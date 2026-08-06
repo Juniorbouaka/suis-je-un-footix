@@ -7,6 +7,7 @@ import Icon from '../components/Icon.jsx';
 import PremiumBadge from '../components/PremiumBadge.jsx';
 import SupporterBadge from '../components/SupporterBadge.jsx';
 import SubscriptionCard from '../components/SubscriptionCard.jsx';
+import SubscriptionCancel from '../components/SubscriptionCancel.jsx';
 import ThemePicker from '../components/ThemePicker.jsx';
 import DetailedStats from '../components/DetailedStats.jsx';
 
@@ -137,6 +138,11 @@ export default function Profile() {
           ))}
         </div>
       </div>
+
+      {/* Résilier vient AVANT supprimer : c'est le geste que les gens
+          cherchent, et le confondre avec la suppression du compte serait
+          coûteux dans les deux sens. */}
+      <SubscriptionCancel />
 
       <div className="danger-zone">
         <h2 style={{ fontSize: 16, marginBottom: 6 }}>Supprimer mon compte</h2>
