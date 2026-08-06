@@ -139,7 +139,8 @@ export default function ArchiveGame() {
   }
 
   const finished = Boolean(result);
-  const maxAttempts = data?.maxAttempts || 50;
+  // Le rejeu est réservé aux abonnés : c'est donc le forfait premium.
+  const maxAttempts = data?.maxAttempts ?? 50;
   // Le serveur refuserait la proposition : autant proposer l'abonnement
   // plutot qu'un champ de saisie qui renverrait une erreur.
   const bloque = data?.canPlay === false && !finished;
@@ -257,7 +258,7 @@ export default function ArchiveGame() {
             <div className="row row-between small muted" style={{ marginTop: 14 }}>
               <span>
                 <strong className="mono">{Math.max(0, maxAttempts - guesses.length)}</strong>{' '}
-                tentative(s) restante(s) · meilleur score <strong className="mono">{bestScore}</strong>
+                chance(s) restante(s) · meilleur score <strong className="mono">{bestScore}</strong>
               </span>
               <button className="btn-icon btn-text" onClick={surrender}>
                 Renoncer

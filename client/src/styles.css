@@ -1908,6 +1908,44 @@ a:hover {
   color: var(--green-neon);
 }
 
+/* ------------- fenetre « chances epuisees » (PremiumModal) -------------
+   Le seul moment ou le jeu s'autorise une modale : le joueur vient de buter
+   sur la limite du forfait gratuit, la reponse a sa question est l'offre.  */
+
+.premium-modal-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  color: var(--green-neon);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+.premium-modal-list {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  list-style: none;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.premium-modal-list li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--text-muted);
+}
+
+.premium-modal-list .icon {
+  flex: none;
+  color: var(--green-neon);
+}
+
 /* ------------------------------ tarifs ------------------------------ */
 
 .plan-grid {

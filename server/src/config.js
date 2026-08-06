@@ -45,14 +45,34 @@ export const config = {
     ? process.env.DATABASE_FILE
     : path.join(serverRoot, process.env.DATABASE_FILE || './data/footix.db'),
 
-  // Règles de jeu
+  /*
+   * Règles de jeu.
+   *
+   * Le nombre de chances est devenu la frontière entre le gratuit et
+   * l'abonnement. Chaque proposition est un appel facturé à Claude : une
+   * partie ouverte à cinquante essais pour tout le monde coûtait plus cher
+   * que ce qu'elle rapportait. Quinze chances suffisent à jouer sa journée,
+   * cinquante sont le confort qu'on achète.
+   */
   game: {
     guessesPerMinute: 10, // rate limit métier (cahier des charges §8)
     minGuessIntervalMs: 1000, // max 1 appel/sec par joueur (§5)
-    maxAttempts: Number(process.env.MAX_ATTEMPTS || 50), // solo : au-delà, perdu
-    maxAttemptsPvp: Number(process.env.MAX_ATTEMPTS_PVP || 25), // duel : les deux à sec => nul
+    maxAttemptsFree: Number(process.env.MAX_ATTEMPTS_FREE || 15), // solo gratuit : au-delà, perdu
+    maxAttemptsPremium: Number(process.env.MAX_ATTEMPTS_PREMIUM || 50), // solo abonné
+    maxAttemptsPvp: Number(process.env.MAX_ATTEMPTS_PVP || 20), // duel : à sec => perdu
     turnMs: Number(process.env.TURN_MS || 15000), // duel : 15 s pour proposer
     maxMissedTurns: Number(process.env.MAX_MISSED_TURNS || 3), // 3 tours manqués = forfait
+
+    /*
+     * Duels par jour. Un duel, ce sont deux joueurs qui proposent jusqu'à
+     * vingt mots chacun : c'est le format le plus cher du jeu, et le seul
+     * qu'un visiteur pouvait enchaîner sans limite.
+     *
+     * Le plafond de l'abonné n'est pas une punition mais un garde-fou : à
+     * vingt duels dans la journée, on n'est plus dans l'usage d'un joueur.
+     */
+    duelsPerDayFree: Number(process.env.MAX_DUELS_FREE || 2),
+    duelsPerDayPremium: Number(process.env.MAX_DUELS_PREMIUM || 20),
   },
 
   // URL publique du site, utilisée dans les e-mails (lien de réinitialisation).
@@ -174,3 +194,15 @@ export const config = {
 };
 
 export const isProd = process.env.NODE_ENV === 'production';
+
+/**
+ * Nombre de chances d'un joueur sur une partie solo.
+ *
+ * Accepte indifféremment une ligne de la base (`is_premium`) ou l'utilisateur
+ * d'une socket (`isPremium`) : les deux mondes appellent cette fonction, et
+ * une règle de facturation ne doit exister qu'à un seul endroit.
+ */
+export function attemptsFor(user) {
+  const premium = Boolean(user?.is_premium ?? user?.isPremium);
+  return premium ? config.game.maxAttemptsPremium : config.game.maxAttemptsFree;
+}

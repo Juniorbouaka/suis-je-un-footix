@@ -4,9 +4,10 @@ import { config } from './config.js';
 import { db } from './db.js';
 import { authenticateSocket } from './auth.js';
 import { evaluateProximity, feedbackFor, normalizeWord, validateGuess, describePlayer } from './claude.js';
-import { multiplayerScore, recordPvpResult, recordPvpDraw, readStats } from './scoring.js';
+import { multiplayerScore, recordPvpResult, readStats } from './scoring.js';
 import { evaluatePvp } from './achievements.js';
 import { isKnownPlayer, randomWord } from './words.js';
+import { duelQuota } from './duels.js';
 
 /* ------------------------------------------------------------------ *
  *  État en mémoire
@@ -188,24 +189,24 @@ function finishGame(io, room, { winnerId, reason }) {
     console.error('[pvp] persistance échouée :', err.message);
   }
 
-  const draw = reason === 'draw';
+  /*
+   * Il n'y a plus de match nul : un duel se gagne en trouvant le joueur
+   * mystère. Sans vainqueur, les deux repartent avec une défaite et les
+   * cinquante points de participation.
+   */
   const summary = {};
   for (const id of room.order) {
-    const won = !draw && id === winnerId;
+    const won = id === winnerId;
     const stats = readStats(id);
-    const points = draw
-      ? 100 // match nul : les deux repartent avec la moitié d'une victoire de base
-      : multiplayerScore({
-          won,
-          attempts: room.players[id].guesses.length,
-          durationMs,
-          streak: won ? stats.pvpStreak || 0 : 0,
-        });
-    const nextStats = draw
-      ? recordPvpDraw(id, { points })
-      : recordPvpResult(id, { won, points });
-    const unlocked = draw ? [] : evaluatePvp(id, { won, secretWord: room.secret });
-    summary[id] = { points, won, draw, stats: nextStats, unlocked };
+    const points = multiplayerScore({
+      won,
+      attempts: room.players[id].guesses.length,
+      durationMs,
+      streak: won ? stats.pvpStreak || 0 : 0,
+    });
+    const nextStats = recordPvpResult(id, { won, points });
+    const unlocked = evaluatePvp(id, { won, secretWord: room.secret });
+    summary[id] = { points, won, stats: nextStats, unlocked };
   }
 
   broadcast(io, room, 'game-over', {
@@ -219,6 +220,19 @@ function finishGame(io, room, { winnerId, reason }) {
   describePlayer(room.secret)
     .then((sheet) => broadcast(io, room, 'descriptions', { secret: room.secret, text: sheet.text }))
     .catch(() => {});
+}
+
+/**
+ * Refuse un nouveau duel au joueur qui a fait le plein pour aujourd'hui.
+ *
+ * Le contrôle est ici et non côté client : c'est le seul endroit qu'un joueur
+ * ne peut pas contourner, et c'est juste avant la dépense.
+ */
+function duelRefused(socket, userId) {
+  const quota = duelQuota(userId);
+  if (quota.remaining > 0) return false;
+  socket.emit('duel-quota', quota);
+  return true;
 }
 
 function cleanupRoom(room) {
@@ -259,6 +273,7 @@ export function attachRealtime(httpServer) {
 
     socket.on('join-matchmaking', () => {
       if (currentRoom()) return socket.emit('error-message', { error: 'Tu es déjà dans une partie.' });
+      if (duelRefused(socket, user.id)) return;
       queue = queue.filter((p) => p.userId !== user.id && io.sockets.sockets.has(p.socketId));
 
       const waiting = queue.shift();
@@ -295,6 +310,7 @@ export function attachRealtime(httpServer) {
 
     socket.on('create-invite', () => {
       if (currentRoom()) return socket.emit('error-message', { error: 'Tu es déjà dans une partie.' });
+      if (duelRefused(socket, user.id)) return;
       const code = crypto.randomBytes(3).toString('hex').toUpperCase();
       const pending = {
         code,
@@ -318,13 +334,24 @@ export function attachRealtime(httpServer) {
       if (pending.host.userId === user.id) {
         return socket.emit('error-message', { error: 'Tu ne peux pas rejoindre ta propre invitation.' });
       }
+      if (duelRefused(socket, user.id)) return;
+
+      // L'hôte a pu épuiser son quota depuis qu'il a créé le code : l'invité
+      // doit savoir pourquoi la partie ne démarre pas, et l'hôte aussi.
+      const hostSocket = io.sockets.sockets.get(pending.host.socketId);
+      if (!hostSocket || duelRefused(hostSocket, pending.host.userId)) {
+        invites.delete(pending.code);
+        return socket.emit('error-message', {
+          error: 'Ton adversaire n’est plus disponible pour un duel aujourd’hui.',
+        });
+      }
       invites.delete(pending.code);
 
       const room = makeRoom(
         { userId: pending.host.userId, username: pending.host.username, isPremium: pending.host.isPremium, isSupporter: pending.host.isSupporter },
         { userId: user.id, username: user.username, isPremium: user.isPremium, isSupporter: user.isSupporter }
       );
-      io.sockets.sockets.get(pending.host.socketId)?.join(room.id);
+      hostSocket.join(room.id);
       socket.join(room.id);
       broadcast(io, room, 'match-found', { ...roomState(room), countdown: 3 });
       launchGame(io, room);
@@ -402,8 +429,11 @@ export function attachRealtime(httpServer) {
 
       broadcast(io, room, 'guess-result', { playerId: user.id, ...entry, found: false });
 
+      // Les deux à sec : personne n'a trouvé, donc personne ne gagne. Ce
+      // n'est pas un match nul — un duel où les vingt essais passent sans
+      // trouver le joueur mystère est une défaite pour les deux.
       if (meDone && foeDone) {
-        return finishGame(io, room, { winnerId: null, reason: 'draw' });
+        return finishGame(io, room, { winnerId: null, reason: 'exhausted' });
       }
 
       // Le tour passe à l'adversaire, sauf s'il n'a plus de tentatives.
@@ -443,6 +473,16 @@ export function attachRealtime(httpServer) {
     socket.on('rematch', () => {
       const room = currentRoom();
       if (!room || room.status !== 'finished') return;
+
+      // Une revanche est un duel de plus : elle se décompte comme les autres,
+      // sinon le quota se contournerait en enchaînant les revanches.
+      if (duelRefused(socket, user.id)) {
+        socket.to(room.id).emit('error-message', {
+          error: `${user.username} n’a plus de duel disponible aujourd’hui.`,
+        });
+        return;
+      }
+
       room.rematchVotes.add(user.id);
       broadcast(io, room, 'rematch-vote', { votes: [...room.rematchVotes] });
 

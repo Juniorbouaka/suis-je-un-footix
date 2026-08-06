@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { getSocket } from '../lib/socket.js';
+import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import Icon from '../components/Icon.jsx';
+import PremiumModal from '../components/PremiumModal.jsx';
 
 /**
  * Écran de matchmaking : recherche aléatoire ou défi entre amis par code.
  * Dès qu'un adversaire est trouvé → décompte puis redirection vers l'arène.
+ *
+ * Le quota du jour est lu avant le premier clic : un bouton qui échoue vaut
+ * moins qu'un bouton qui explique. Le refus, lui, reste tranché par le
+ * serveur au moment de lancer la partie.
  */
 export default function Matchmaking() {
   const navigate = useNavigate();
@@ -17,6 +24,12 @@ export default function Matchmaking() {
   const [error, setError] = useState('');
   const [countdown, setCountdown] = useState(null);
   const [opponent, setOpponent] = useState(null);
+  const [quotaAtteint, setQuotaAtteint] = useState(false);
+
+  const { data: quota, refetch: relireQuota } = useQuery({
+    queryKey: ['duel-quota'],
+    queryFn: async () => (await api.get('/duel/quota')).data,
+  });
 
   useEffect(() => {
     const socket = getSocket();
@@ -33,19 +46,27 @@ export default function Matchmaking() {
       setCountdown(3);
     };
     const onError = ({ error: e }) => setError(e);
+    // Le serveur a refusé le duel : plus rien à chercher, on explique.
+    const onQuota = () => {
+      setMode('idle');
+      setQuotaAtteint(true);
+      relireQuota();
+    };
 
     socket.on('matchmaking-waiting', onWaiting);
     socket.on('invite-created', onInvite);
     socket.on('match-found', onFound);
     socket.on('error-message', onError);
+    socket.on('duel-quota', onQuota);
 
     return () => {
       socket.off('matchmaking-waiting', onWaiting);
       socket.off('invite-created', onInvite);
       socket.off('match-found', onFound);
       socket.off('error-message', onError);
+      socket.off('duel-quota', onQuota);
     };
-  }, [user?.id]);
+  }, [user?.id, relireQuota]);
 
   useEffect(() => {
     if (countdown === null) return;
@@ -85,13 +106,43 @@ export default function Matchmaking() {
   };
 
   const inviteUrl = code ? `${window.location.origin}/duel?code=${code}` : '';
+  const restants = quota?.remaining ?? null;
+  const aSec = restants === 0;
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto' }}>
+      <PremiumModal
+        open={quotaAtteint}
+        onClose={() => setQuotaAtteint(false)}
+        titre="Tes duels du jour sont joués"
+        texte={`Le gratuit donne ${quota?.freeMax ?? 2} duels par jour — un duel, ce sont deux
+                joueurs et jusqu'à 20 propositions chacun, tout ça évalué par l'IA. L'abonnement
+                monte à ${quota?.premiumMax ?? 20} duels quotidiens.`}
+      />
+
       <h1 style={{ fontSize: 26, marginBottom: 6 }}>Mode duel</h1>
-      <p className="muted" style={{ marginBottom: 22 }}>
-        Chacun choisit un joueur secret. Le premier à deviner celui de l’adversaire gagne.
+      <p className="muted" style={{ marginBottom: 14 }}>
+        Vous cherchez le même joueur mystère, chacun son tour. Le premier à donner son nom gagne.
       </p>
+
+      {restants !== null && (
+        <p className="small muted" style={{ marginBottom: 22 }}>
+          <Icon name="swords" size={13} />{' '}
+          {aSec ? (
+            <>
+              Plus de duel aujourd’hui.{' '}
+              <button className="btn-icon btn-text" onClick={() => setQuotaAtteint(true)}>
+                Voir l’abonnement
+              </button>
+            </>
+          ) : (
+            <>
+              <strong className="mono">{restants}</strong> duel(s) restant(s) aujourd’hui, sur{' '}
+              {quota?.max}
+            </>
+          )}
+        </p>
+      )}
 
       {mode === 'found' ? (
         <div className="card center">
@@ -122,7 +173,7 @@ export default function Matchmaking() {
             <p className="muted small" style={{ marginBottom: 16 }}>
               On te met en relation avec un autre joueur en ligne.
             </p>
-            <button className="btn btn-block btn-lg" onClick={search}>
+            <button className="btn btn-block btn-lg" onClick={search} disabled={aSec}>
               <Icon name="dice" size={19} /> Chercher un adversaire
             </button>
           </div>
@@ -149,7 +200,7 @@ export default function Matchmaking() {
                 </p>
               </div>
             ) : (
-              <button className="btn btn-ghost btn-block" onClick={createInvite}>
+              <button className="btn btn-ghost btn-block" onClick={createInvite} disabled={aSec}>
                 <Icon name="link" /> Créer une invitation
               </button>
             )}
@@ -163,7 +214,7 @@ export default function Matchmaking() {
                 maxLength={6}
                 aria-label="Code d’invitation"
               />
-              <button className="btn" disabled={joinCode.length < 4}>
+              <button className="btn" disabled={joinCode.length < 4 || aSec}>
                 Rejoindre
               </button>
             </form>

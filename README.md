@@ -118,6 +118,12 @@ L'accès se règle par la variable `ADMIN_EMAILS` (adresses séparées par des v
 droit attaché au compte du jeu, pas un mot de passe supplémentaire : le serveur répond `404` à
 qui n'y figure pas, et retirer une adresse suffit à couper l'accès.
 
+**Un administrateur a aussi l'accès premium complet**, sans abonnement et sans écriture en base
+(`findUserById`) : 50 chances, 20 duels, archives, statistiques et thèmes. Celui qui paie l'API
+du jeu n'a pas à s'abonner à son propre jeu, et il doit pouvoir vérifier ce que voient ses
+abonnés. Retirer l'adresse de `ADMIN_EMAILS` retire les deux droits d'un coup, sans rien laisser
+à nettoyer dans la base.
+
 Deux dates suivent chaque compte, parce qu'elles ne disent pas la même chose : `last_login_at`
 (dernière saisie du mot de passe) et `last_seen_at` (dernière requête authentifiée, écrite au
 plus toutes les 5 minutes). Le journal `login_events` ne garde que l'identifiant et l'heure —
@@ -179,7 +185,7 @@ client/                  React 18 + Vite
 | `POST` | `/api/guess` | propose un joueur, renvoie la proximité |
 | `POST` | `/api/surrender` | abandonne et révèle le joueur + sa fiche |
 | `GET` | `/api/history?date=` | tentatives d'une journée |
-| `GET` | `/api/leaderboard?scope=all\|today` | top 100 |
+| `GET` | `/api/leaderboard?scope=month\|all\|hall` | top 100 du mois, général, palmarès |
 | `GET` | `/api/stats/global` | compteurs d'accueil (dont `online` et `bankSize`) |
 | `POST` | `/api/presence` | ping de présence |
 | `GET` | `/api/archive` · `/archive/:date` | journées passées (3 jours libres, puis premium) |
@@ -205,14 +211,30 @@ client/                  React 18 + Vite
 
 ## Règles et scoring
 
-**Solo** — **50 tentatives maximum** (`MAX_ATTEMPTS`), réinitialisation à minuit UTC. Au-delà, la
-partie est perdue : le joueur est révélé avec sa fiche, score nul.
+**Solo** — **15 chances par jour** en gratuit (`MAX_ATTEMPTS_FREE`), **50 pour les abonnés**
+(`MAX_ATTEMPTS_PREMIUM`), réinitialisation à minuit UTC. Au-delà, la partie est perdue : le joueur
+est révélé avec sa fiche, score nul, et une fenêtre propose l'abonnement.
 `score = 1000 − 50 × (tentatives − 1) + (3600 − secondes) / 10`, plancher à 100.
 
-**Duel** — chacun choisit un joueur secret, les tours alternent, le premier qui atteint une
-proximité ≥ 90 (ou le nom exact) gagne. **25 tentatives chacun** (`MAX_ATTEMPTS_PVP`) : quand les
-deux sont à sec, c'est **match nul** et chacun marque 100 points. `score = 200 + bonus de rapidité + bonus d'efficacité +
-50 × série`. Défaite : 50 points de participation.
+Un joueur qui s'abonne après avoir épuisé ses quinze chances retrouve sa partie du jour ouverte
+(`reopenIfUpgraded`) : on ne vend pas cinquante chances pour en livrer zéro.
+
+**Duel** — les deux cherchent le même joueur mystère, les tours alternent, le premier qui donne le
+nom exact gagne. **20 essais chacun** (`MAX_ATTEMPTS_PVP`) : quand les deux sont à sec sans avoir
+trouvé, **les deux perdent** — il n'y a pas de match nul. `score = 200 + bonus de rapidité + bonus
+d'efficacité + 50 × série`. Défaite : 50 points de participation.
+
+**2 duels par jour** en gratuit (`MAX_DUELS_FREE`), **20 pour les abonnés**
+(`MAX_DUELS_PREMIUM`) : un duel, ce sont deux joueurs et jusqu'à quarante propositions évaluées.
+Le compte se lit dans `multiplay_games` — abandons et déconnexions inclus, ils ont coûté leurs
+appels comme les autres — et le refus est prononcé par la socket avant la dépense, à l'entrée en
+matchmaking, à la création ou l'acceptation d'une invitation, et **à la revanche** (sans quoi le
+quota se contournerait en enchaînant les revanches).
+
+**Classement** — trois lectures : **le mois** en cours (remise à zéro le 1er), le **général**
+(cumul de toujours) et le **palmarès**, qui garde le vainqueur de chaque mois terminé. Un mois est
+scellé dans `monthly_champions` à la première consultation qui suit sa fin — pas de tâche
+planifiée, et un titre acquis ne se recalcule plus.
 
 **Jauge** — 0-15 rouge, 16-40 orange, 41-70 jaune, 71-85 vert clair, 86-100 vert.
 
@@ -231,14 +253,27 @@ recettes le financent — l'abonnement et la publicité — et une troisième, l
 |---|---|
 | Encaisseur | PayPal Subscriptions |
 | Tarifs | 2,99 €/mois · 19,99 €/an |
-| Ce que ça débloque | sans publicité · archives complètes · **rejeu des journées passées** · statistiques détaillées · quatre décors de terrain · badge au classement |
+| Ce que ça débloque | **50 chances par jour au lieu de 15** · sans publicité · archives complètes · **rejeu des journées passées** · statistiques détaillées · quatre décors de terrain · badge au classement |
 
-**Ce que l'abonnement ne donne jamais : un avantage de jeu.** Pas de tentative supplémentaire,
-pas d'indice, pas d'accès au gros modèle, aucun point. Sur un jeu quotidien avec classement, un
-premium qui aide à gagner transforme le classement en classement des payeurs et vide la
-communauté en quelques semaines. Le rejeu des archives se déroule d'ailleurs dans des tables
-séparées (`archive_guesses` / `archive_results`) : il ne touche ni `daily_results`, ni les
-statistiques, ni les médailles.
+**Le nombre de chances est le cœur de l'offre.** Chaque proposition est un appel facturé à
+Claude : une partie ouverte à cinquante essais pour tout le monde coûte plus cher qu'elle ne
+rapporte. Quinze chances suffisent à jouer sa journée, cinquante sont le confort qu'on achète.
+
+**Ce que l'abonnement ne donne toujours pas :** d'indice, de point offert, ni d'accès à un
+meilleur évaluateur. Le score baisse de 50 points à chaque chance utilisée, pour tout le monde :
+un abonné qui trouve au 40ᵉ essai marque moins qu'un joueur gratuit qui trouve au 3ᵉ. Le rejeu des
+archives se déroule dans des tables séparées (`archive_guesses` / `archive_results`) : il ne
+touche ni `daily_results`, ni les statistiques, ni les médailles.
+
+Accorder le premium à la main (compte de test, geste commercial) :
+
+```bash
+cd server
+npm run premium -- adresse@exemple.com            # sans échéance, ne s'éteint jamais tout seul
+npm run premium -- adresse@exemple.com --retirer
+# en production, la base vit dans le volume de l'hébergeur :
+railway run npm run premium -- adresse@exemple.com
+```
 
 #### Mise en route
 

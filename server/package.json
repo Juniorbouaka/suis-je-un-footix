@@ -14,6 +14,7 @@
     "test:duel": "node tests/duel.e2e.mjs",
     "check:bank": "node tests/bank.check.mjs",
     "secrets": "node scripts/generate-secrets.mjs",
+    "premium": "node scripts/grant-premium.mjs",
     "paypal:setup": "node scripts/paypal-setup.mjs",
     "start:prod": "node src/index.js",
     "backup": "node -e \"import('./src/backup.js').then(m=>m.runBackup())\"",

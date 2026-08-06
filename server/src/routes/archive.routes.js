@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { db } from '../db.js';
 import { requireAuth } from '../auth.js';
-import { config } from '../config.js';
+import { config, attemptsFor } from '../config.js';
 import {
   describePlayer,
   evaluateProximity,
@@ -185,7 +185,7 @@ archiveRouter.get('/archive/:date', requireAuth, async (req, res) => {
     length: row.word.length,
     difficulty: row.difficulty,
     category: row.category || null,
-    maxAttempts: config.game.maxAttempts,
+    maxAttempts: attemptsFor(req.user),
     // Le client doit savoir s'il peut jouer, pour proposer l'abonnement
     // plutot qu'un champ de saisie qui renverrait une erreur.
     canPlay: canPlay(req.user),
@@ -251,8 +251,9 @@ archiveRouter.post(
       .prepare('SELECT word_guessed, score, attempt_number FROM archive_guesses WHERE user_id = ? AND date = ?')
       .all(req.user.id, date);
 
-    if (previous.length >= config.game.maxAttempts) {
-      return res.status(409).json({ error: 'Tentatives épuisées sur cette journée.' });
+    const cap = attemptsFor(req.user);
+    if (previous.length >= cap) {
+      return res.status(409).json({ error: 'Chances épuisées sur cette journée.' });
     }
 
     const normalized = normalizeWord(check.word);
@@ -285,7 +286,7 @@ archiveRouter.post(
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(req.user.id, date, check.word, evaluation.score, fb.label, attempt);
 
-    const remaining = Math.max(0, config.game.maxAttempts - attempt);
+    const remaining = Math.max(0, cap - attempt);
 
     const payload = {
       word: check.word,
@@ -294,7 +295,7 @@ archiveRouter.post(
       tier: fb.tier,
       attempt,
       remaining,
-      maxAttempts: config.game.maxAttempts,
+      maxAttempts: cap,
       found,
       source: evaluation.source,
     };

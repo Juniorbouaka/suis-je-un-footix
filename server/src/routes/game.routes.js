@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { db } from '../db.js';
 import { requireAuth } from '../auth.js';
-import { config } from '../config.js';
+import { config, attemptsFor } from '../config.js';
 import {
   evaluateProximity,
   feedbackFor,
@@ -15,6 +15,7 @@ import { getDailyWord, publicDailyWord, todayUtc, puzzleNumber } from '../words.
 import { soloScore, recordSoloWin, readStats, rankFor } from '../scoring.js';
 import { evaluateSolo, listFor } from '../achievements.js';
 import { PITCH_THEMES, DEFAULT_THEME, findTheme, canUseTheme } from '../themes.js';
+import { duelQuota } from '../duels.js';
 
 export const gameRouter = Router();
 
@@ -63,6 +64,32 @@ function resultRow(userId, date) {
   return row ? { ...row } : null;
 }
 
+/**
+ * Rouvre la partie du jour d'un joueur qui vient de s'abonner.
+ *
+ * Sans ça, l'abonnement pris depuis la fenêtre « chances épuisées » ne
+ * servirait à rien avant le lendemain : on vendrait cinquante chances pour
+ * en livrer zéro. Seule une partie perdue faute de chances est concernée —
+ * un abandon reste un abandon, une victoire reste acquise.
+ */
+function reopenIfUpgraded(user, date) {
+  if (!user.is_premium) return;
+  const result = db
+    .prepare("SELECT 1 FROM daily_results WHERE user_id = ? AND date = ? AND outcome = 'exhausted'")
+    .get(user.id, date);
+  if (!result) return;
+
+  const used = db
+    .prepare('SELECT COUNT(*) AS n FROM guesses WHERE user_id = ? AND date = ?')
+    .get(user.id, date).n;
+  if (used >= attemptsFor(user)) return;
+
+  db.prepare("DELETE FROM daily_results WHERE user_id = ? AND date = ? AND outcome = 'exhausted'").run(
+    user.id,
+    date
+  );
+}
+
 function elapsedSeconds(userId, date) {
   const first = db
     .prepare('SELECT created_at FROM guesses WHERE user_id = ? AND date = ? ORDER BY id ASC LIMIT 1')
@@ -78,18 +105,23 @@ function elapsedSeconds(userId, date) {
 
 gameRouter.get('/daily-word', requireAuth, async (req, res) => {
   const date = todayUtc();
+  reopenIfUpgraded(req.user, date);
+
   const puzzle = publicDailyWord(date);
   const result = resultRow(req.user.id, date);
   const guesses = guessRows(req.user.id, date);
   const finished = Boolean(result);
   const description = finished ? (await describePlayer(getDailyWord(date).word)).text : null;
+  const cap = attemptsFor(req.user);
 
   res.json({
     description,
     puzzle,
     guesses,
-    maxAttempts: config.game.maxAttempts,
-    remaining: Math.max(0, config.game.maxAttempts - guesses.length),
+    maxAttempts: cap,
+    remaining: Math.max(0, cap - guesses.length),
+    isPremium: Boolean(req.user.is_premium),
+    premiumAttempts: config.game.maxAttemptsPremium,
     solved: Boolean(result && result.outcome === 'found'),
     surrendered: Boolean(result && result.outcome === 'surrendered'),
     result: result
@@ -115,6 +147,9 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
   const check = validateGuess(req.body?.word);
   if (!check.ok) return res.status(400).json({ error: check.error });
 
+  reopenIfUpgraded(req.user, date);
+  const cap = attemptsFor(req.user);
+
   if (resultRow(req.user.id, date)) {
     return res.status(409).json({ error: 'Partie du jour déjà terminée. Reviens demain !' });
   }
@@ -122,8 +157,8 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
   const used = db
     .prepare('SELECT COUNT(*) AS n FROM guesses WHERE user_id = ? AND date = ?')
     .get(req.user.id, date).n;
-  if (used >= config.game.maxAttempts) {
-    return res.status(409).json({ error: 'Tu as épuisé tes tentatives du jour.' });
+  if (used >= cap) {
+    return res.status(409).json({ error: 'Tu as épuisé tes chances du jour.' });
   }
 
   const daily = getDailyWord(date);
@@ -162,7 +197,7 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
      VALUES (?, ?, ?, ?, ?, ?)`
   ).run(req.user.id, date, check.word, evaluation.score, fb.label, attempt);
 
-  const remaining = Math.max(0, config.game.maxAttempts - attempt);
+  const remaining = Math.max(0, cap - attempt);
 
   const payload = {
     word: check.word,
@@ -172,12 +207,12 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
     // Pas d'explication : elle révélerait le poste, la nationalité ou le club.
     attempt,
     remaining,
-    maxAttempts: config.game.maxAttempts,
+    maxAttempts: cap,
     found,
     source: evaluation.source,
   };
 
-  // Tentatives épuisées sans avoir trouvé : la partie du jour est perdue.
+  // Chances épuisées sans avoir trouvé : la partie du jour est perdue.
   if (!found && remaining === 0) {
     const seconds = elapsedSeconds(req.user.id, date);
     db.prepare(
@@ -186,6 +221,11 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
     ).run(req.user.id, date, attempt, seconds);
 
     payload.exhausted = true;
+    // Le client n'a pas à deviner s'il faut proposer l'abonnement : c'est le
+    // serveur qui connaît le forfait du joueur et la taille de l'offre.
+    payload.upsell = req.user.is_premium
+      ? null
+      : { freeAttempts: cap, premiumAttempts: config.game.maxAttemptsPremium };
     payload.result = {
       attempts: attempt,
       seconds,
@@ -226,6 +266,18 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
   }
 
   res.json(payload);
+});
+
+/* -------------------------------------------------------------- *
+ *  GET /api/duel/quota — duels restants aujourd'hui
+ *
+ *  Le refus définitif se joue sur la socket, au moment de lancer la
+ *  partie. Cette route existe pour que l'écran de duel puisse le dire
+ *  AVANT le clic, plutôt que d'afficher un bouton qui échouera.
+ * -------------------------------------------------------------- */
+
+gameRouter.get('/duel/quota', requireAuth, (req, res) => {
+  res.json(duelQuota(req.user.id));
 });
 
 /* -------------------------------------------------------------- *

@@ -78,15 +78,6 @@ export function recordSoloWin(userId, { date, attempts, seconds, score }) {
   return stats;
 }
 
-/** Match nul : pas de série cassée, pas de victoire comptée. */
-export function recordPvpDraw(userId, { points }) {
-  const stats = readStats(userId);
-  stats.pvpDraws = (stats.pvpDraws || 0) + 1;
-  stats.totalScore += points;
-  writeStats(userId, stats);
-  return stats;
-}
-
 export function recordPvpResult(userId, { won, points }) {
   const stats = readStats(userId);
   if (won) {

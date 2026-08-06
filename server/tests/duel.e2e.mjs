@@ -149,7 +149,10 @@ const winner = final.players.find((p) => p.userId === final.winnerId);
 
 console.log('\n══════ RÉSULTAT ══════');
 console.log('Joueur mystère :', final.secret);
-console.log('Issue          :', final.reason === 'draw' ? 'match nul' : `victoire de ${clean(winner?.username)}`);
+console.log(
+  'Issue          :',
+  final.winnerId ? `victoire de ${clean(winner?.username)}` : 'personne n’a trouvé : double défaite'
+);
 console.log('Motif          :', final.reason);
 console.log('Durée          :', Math.round(final.durationMs / 1000), 's');
 for (const p of final.players) {

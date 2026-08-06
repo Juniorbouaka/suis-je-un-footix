@@ -9,6 +9,7 @@ import Icon from '../components/Icon.jsx';
 import PremiumBadge from '../components/PremiumBadge.jsx';
 import SupporterBadge from '../components/SupporterBadge.jsx';
 import SupportPrompt from '../components/SupportPrompt.jsx';
+import PremiumModal from '../components/PremiumModal.jsx';
 
 /** Compte à rebours du tour : 15 s pour proposer. */
 function TurnClock({ deadline, active }) {
@@ -68,6 +69,8 @@ export default function Arena() {
   const [rematchVotes, setRematchVotes] = useState([]);
   const [bio, setBio] = useState(null);
   const [flash, setFlash] = useState('');
+  // Revanche refusée : le quota de duels du jour est atteint.
+  const [quota, setQuota] = useState(null);
 
   const myId = user?.id;
 
@@ -122,6 +125,8 @@ export default function Arena() {
       setTimeout(() => setFlash(''), 3000);
     };
 
+    const onQuota = (q) => setQuota(q);
+
     socket.on('state', onState);
     socket.on('game-start', onStart);
     socket.on('guess-result', onGuess);
@@ -133,6 +138,7 @@ export default function Arena() {
     socket.on('no-room', onNoRoom);
     socket.on('descriptions', onDescriptions);
     socket.on('turn-timeout', onTimeout);
+    socket.on('duel-quota', onQuota);
 
     return () => {
       socket.off('state', onState);
@@ -146,6 +152,7 @@ export default function Arena() {
       socket.off('no-room', onNoRoom);
       socket.off('descriptions', onDescriptions);
       socket.off('turn-timeout', onTimeout);
+      socket.off('duel-quota', onQuota);
     };
   }, [navigate, refreshProfile]);
 
@@ -198,8 +205,10 @@ export default function Arena() {
 
   /* --------------------------- L'arène ---------------------------- */
 
-  const isDraw = over?.reason === 'draw';
-  const iWon = over && !isDraw && over.winnerId === myId;
+  // Personne n'a trouvé en vingt essais : les deux perdent, il n'y a plus de
+  // match nul.
+  const bothLost = over?.reason === 'exhausted';
+  const iWon = over && over.winnerId === myId;
   const timedOut = over?.reason === 'timeout';
   const myLast = me?.guesses?.at(-1);
   const foeLast = foe?.guesses?.at(-1);
@@ -207,6 +216,14 @@ export default function Arena() {
   return (
     <div>
       {iWon && <Confetti />}
+
+      <PremiumModal
+        open={Boolean(quota)}
+        onClose={() => setQuota(null)}
+        titre="Tes duels du jour sont joués"
+        texte={`La revanche compte comme un duel de plus, et tu as utilisé tes ${quota?.max ?? 2}
+                du jour. L'abonnement monte à ${quota?.premiumMax ?? 20} duels quotidiens.`}
+      />
 
       <div className="center" style={{ marginBottom: 12 }}>
         <span className="pill pill-blue">Même joueur mystère pour vous deux</span>
@@ -219,13 +236,12 @@ export default function Arena() {
           <div className="result-icon">
             <Icon name={iWon ? 'trophy' : 'flag'} size={40} strokeWidth={1.5} />
           </div>
-          <h2 style={{ fontSize: 24, margin: '10px 0 4px' }}>
-            {isDraw ? 'Match nul' : iWon ? 'Victoire' : 'Défaite'}
-          </h2>
+          <h2 style={{ fontSize: 24, margin: '10px 0 4px' }}>{iWon ? 'Victoire' : 'Défaite'}</h2>
           <p className="muted">
             {over.reason === 'disconnect' && 'Adversaire déconnecté. '}
             {over.reason === 'surrender' && 'Partie terminée par abandon. '}
-            {isDraw && 'Vous avez tous les deux épuisé vos tentatives. '}
+            {bothLost &&
+              `Vous avez épuisé vos ${state.maxAttempts ?? 20} essais sans trouver : défaite pour vous deux. `}
             {timedOut && 'Trois tours laissés filer : forfait. '}
             Le joueur mystère était
           </p>
@@ -245,7 +261,7 @@ export default function Arena() {
           )}
 
           {/* Affiche quelle que soit l'issue, avec un texte adapte. */}
-          <SupportPrompt contexte="duel" issue={iWon || isDraw ? 'gagne' : 'perdu'} />
+          <SupportPrompt contexte="duel" issue={iWon ? 'gagne' : 'perdu'} />
 
           <div className="row wrap" style={{ marginTop: 20, gap: 10, justifyContent: 'center' }}>
             <button className="btn" onClick={() => getSocket()?.emit('rematch')}>

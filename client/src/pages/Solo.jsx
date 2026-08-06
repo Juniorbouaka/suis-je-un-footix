@@ -10,6 +10,7 @@ import Icon from '../components/Icon.jsx';
 import ShareResult from '../components/ShareResult.jsx';
 import AdSlot from '../components/Ads.jsx';
 import SupportPrompt from '../components/SupportPrompt.jsx';
+import PremiumModal from '../components/PremiumModal.jsx';
 
 function formatDuration(seconds) {
   const m = Math.floor(seconds / 60);
@@ -37,7 +38,7 @@ function Countdown() {
 }
 
 export default function Solo() {
-  const { refreshProfile, stats } = useAuth();
+  const { refreshProfile, stats, isPremium } = useAuth();
   const inputRef = useRef(null);
 
   const [guesses, setGuesses] = useState([]);
@@ -51,6 +52,8 @@ export default function Solo() {
   const [surrendered, setSurrendered] = useState(false);
   const [sort, setSort] = useState('best');
   const [description, setDescription] = useState(null);
+  // Renseigné par le serveur au moment exact où les chances tombent à zéro.
+  const [upsell, setUpsell] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['daily-word'],
@@ -101,6 +104,7 @@ export default function Solo() {
         setResult(res.result);
         setDescription(res.description || null);
         setUnlocked(res.unlocked || []);
+        if (res.upsell) setUpsell(res.upsell);
         refreshProfile();
       }
     } catch (err) {
@@ -126,10 +130,20 @@ export default function Solo() {
 
   const puzzle = data?.puzzle;
   const finished = Boolean(result);
+  const maxAttempts = data?.maxAttempts ?? 15;
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
       {finished && !surrendered && <Confetti />}
+
+      <PremiumModal
+        open={Boolean(upsell)}
+        onClose={() => setUpsell(null)}
+        titre={`Tes ${upsell?.freeAttempts ?? maxAttempts} chances sont passées`}
+        texte={`Le joueur mystère t'a résisté aujourd'hui. Avec l'abonnement, tu repars chaque jour
+                avec ${upsell?.premiumAttempts ?? 50} chances au lieu de ${upsell?.freeAttempts ?? maxAttempts}
+                — de quoi aller au bout des journées difficiles.`}
+      />
 
       <div className="row row-between wrap" style={{ marginBottom: 18 }}>
         <div>
@@ -158,7 +172,7 @@ export default function Solo() {
             </div>
             <h2 style={{ fontSize: 24, margin: '10px 0 6px' }}>
               {result.outcome === 'exhausted'
-                ? 'Tentatives épuisées'
+                ? `Tes ${maxAttempts} chances sont passées`
                 : result.outcome === 'surrendered'
                   ? 'Partie abandonnée'
                   : `Trouvé en ${result.attempts} tentative${result.attempts > 1 ? 's' : ''}`}
@@ -214,8 +228,18 @@ export default function Solo() {
             score={result.score}
             guesses={guesses}
             outcome={result.outcome || (surrendered ? 'surrendered' : 'found')}
-            maxAttempts={data?.maxAttempts || 50}
+            maxAttempts={maxAttempts}
           />
+
+          {/* La modale ne s'affiche qu'une fois : le chemin vers l'abonnement
+              doit rester visible sur l'écran de fin, sans insister. */}
+          {result.outcome === 'exhausted' && !isPremium && (
+            <div className="premium-note small muted" style={{ marginTop: 16 }}>
+              <Icon name="crown" size={14} /> {maxAttempts} chances par jour en gratuit.{' '}
+              <Link to="/premium">L'abonnement en donne {data?.premiumAttempts ?? 50}</Link>, sans
+              publicité, avec les archives.
+            </div>
+          )}
 
           {/* Affiche quelle que soit l'issue, mais le TEXTE change : apres un
               echec on ne felicite pas et on ne reclame pas, on constate. */}
@@ -275,8 +299,8 @@ export default function Solo() {
 
             <div className="row row-between small muted" style={{ marginTop: 14 }}>
               <span>
-                <strong className="mono">{Math.max(0, (data?.maxAttempts || 50) - guesses.length)}</strong>{' '}
-                tentative(s) restante(s) · meilleur score <strong className="mono">{bestScore}</strong>
+                <strong className="mono">{Math.max(0, maxAttempts - guesses.length)}</strong>{' '}
+                chance(s) restante(s) · meilleur score <strong className="mono">{bestScore}</strong>
               </span>
               <button className="btn-icon btn-text" onClick={surrender}>
                 Renoncer

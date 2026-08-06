@@ -73,6 +73,21 @@ export default function SubscriptionCard() {
   const echeance = jour(billing?.premiumUntil);
   const resilie = billing?.cancelled;
 
+  // Premium sans abonnement : rien à résilier, rien à facturer.
+  if (billing?.manual) {
+    return (
+      <div className="card subscription-card premium" style={{ marginBottom: 18 }}>
+        <h2 style={{ fontSize: 18, marginBottom: 4 }}>
+          <Icon name="crown" size={16} /> Accès premium
+        </h2>
+        <p className="muted small" style={{ margin: 0 }}>
+          Accordé sans abonnement : tous les avantages sont ouverts, il n'y a rien à payer ni à
+          résilier.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="card subscription-card premium" style={{ marginBottom: 18 }}>
       <div className="row row-between wrap" style={{ gap: 12 }}>

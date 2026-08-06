@@ -189,6 +189,10 @@ export function userIdForSubscription(subscriptionId, customId) {
 export function billingSummary(user) {
   return {
     isPremium: Boolean(user.is_premium),
+    // Premium sans abonnement : administrateur, ou geste accordé à la main.
+    // Il n'y a rien à résilier et aucune échéance à afficher — le profil doit
+    // le dire au lieu d'inventer une « formule mensuelle ».
+    manual: Boolean(user.is_premium) && !user.subscription_id,
     plan: user.subscription_plan || null,
     status: user.subscription_status || null,
     premiumUntil: user.premium_until || null,

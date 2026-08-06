@@ -8,13 +8,28 @@ import Icon from '../components/Icon.jsx';
 /**
  * L'offre premium.
  *
- * Ce qui se vend ici est du confort et du contenu — jamais un avantage de
- * jeu. Pas de tentative supplémentaire, pas d'indice : sur un jeu quotidien
- * avec classement, un premium qui aide à gagner viderait le classement de
- * son sens en quelques semaines.
+ * Le cœur de l'offre est le volume de jeu quotidien : quinze chances et deux
+ * duels en gratuit, cinquante chances et vingt duels avec l'abonnement.
+ * Chaque proposition part vers l'API Claude et se paie, alors le volume est
+ * devenu ce qui distingue les deux forfaits — c'est le poste de dépense,
+ * donc c'est ce qui se vend.
+ *
+ * Ce que l'abonnement ne donne toujours pas : d'indice, de point offert, ni
+ * d'accès à un meilleur évaluateur. Le score reste calculé de la même
+ * manière pour tous, et il baisse à chaque tentative supplémentaire.
  */
 
 const AVANTAGES = [
+  {
+    icon: 'target',
+    titre: '50 chances par jour',
+    texte: 'Au lieu de 15 : de quoi finir les journées qui résistent.',
+  },
+  {
+    icon: 'swords',
+    titre: '20 duels par jour',
+    texte: 'Au lieu de 2. Revanches comprises.',
+  },
   {
     icon: 'flag',
     titre: 'Aucune publicité',
@@ -93,7 +108,8 @@ export default function Premium() {
         <h1 style={{ fontSize: 30, margin: '14px 0 8px' }}>Soutiens le jeu, débloque tout</h1>
         <p className="muted" style={{ maxWidth: 520, margin: '0 auto' }}>
           Chaque proposition est évaluée par une IA, et ça se paye. L'abonnement fait vivre le jeu —
-          et t'ouvre les archives, les statistiques et les thèmes.
+          et fait passer ta journée de 15 à 50 chances et de 2 à 20 duels, sans publicité, archives
+          comprises.
         </p>
       </div>
 
@@ -127,8 +143,10 @@ export default function Premium() {
       </div>
 
       <div className="premium-note small muted">
-        <Icon name="check" size={14} /> Le classement reste au mérite : l'abonnement ne donne
-        aucune tentative en plus, aucun indice, aucun point. C'est un choix, pas un oubli.
+        <Icon name="check" size={14} /> Le score, lui, ne s'achète pas : il baisse de 50 points à
+        chaque chance utilisée, pour tout le monde. Un abonné qui trouve au 40<sup>e</sup> essai
+        marque moins qu'un joueur gratuit qui trouve au 3<sup>e</sup>. Aucun indice, aucun point
+        offert.
       </div>
 
       {!offer?.enabled ? (

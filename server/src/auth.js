@@ -73,7 +73,18 @@ export function findUserById(id) {
   if (!row) return null;
   // Point unique d'expiration du premium : toute requête authentifiée passe
   // ici, aucune tâche planifiée n'est donc nécessaire.
-  return expireIfNeeded({ ...row });
+  const user = expireIfNeeded({ ...row });
+
+  /*
+   * Un administrateur a l'accès premium, sans abonnement et sans écriture en
+   * base. Celui qui paie l'API du jeu n'a pas à s'abonner à son propre jeu,
+   * et il doit pouvoir vérifier ce que voient ses abonnés.
+   *
+   * Le droit vient de ADMIN_EMAILS, comme l'accès au tableau de bord :
+   * retirer l'adresse de la variable retire les deux d'un coup, et aucune
+   * ligne de la base ne reste à nettoyer.
+   */
+  return isAdmin(user) ? { ...user, is_premium: 1 } : user;
 }
 
 /**
