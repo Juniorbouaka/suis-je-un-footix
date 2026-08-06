@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS multiplay_games (
   duration_ms    INTEGER
 );
 
+-- Le quota de duels quotidiens compte les parties du jour d'un joueur.
+CREATE INDEX IF NOT EXISTS idx_multiplay_players ON multiplay_games(player_a_id, player_b_id);
+
 CREATE TABLE IF NOT EXISTS multiplay_guesses (
   id                     INTEGER PRIMARY KEY AUTOINCREMENT,
   game_id                TEXT NOT NULL REFERENCES multiplay_games(id) ON DELETE CASCADE,
@@ -247,7 +250,25 @@ addColumn('donations', 'is_public', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('users', 'last_login_at', 'TEXT');
 addColumn('users', 'last_seen_at', 'TEXT');
 
+/*
+ * Palmarès : les vainqueurs des mois écoulés.
+ *
+ * Le titre est figé une fois le mois terminé, et non recalculé à chaque
+ * affichage — c'est ce qui en fait un palmarès plutôt qu'un tri. Le pseudo
+ * est recopié dans la table : un compte supprimé ou renommé ne doit pas
+ * effacer un mois de l'histoire du jeu, d'où le `ON DELETE SET NULL` sur
+ * l'identifiant plutôt qu'une suppression en cascade.
+ */
 db.exec(`
+CREATE TABLE IF NOT EXISTS monthly_champions (
+  month     TEXT PRIMARY KEY,
+  user_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
+  username  TEXT NOT NULL,
+  total     INTEGER NOT NULL,
+  days      INTEGER NOT NULL,
+  sealed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS login_events (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,

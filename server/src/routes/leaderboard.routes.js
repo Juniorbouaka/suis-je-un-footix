@@ -4,24 +4,47 @@ import { verifyAccessToken } from '../auth.js';
 import { todayUtc, puzzleNumber } from '../words.js';
 import { touch, onlineCount, peakCount } from '../presence.js';
 import { supporterIds } from '../supporters.js';
+import { currentMonth, monthlyRanking, pastChampions } from '../champions.js';
 
 export const leaderboardRouter = Router();
 
-/** GET /api/leaderboard?scope=all|today — top 100 joueurs. */
+/**
+ * GET /api/leaderboard?scope=month|all|hall
+ *
+ * Trois lectures d'une même histoire : le mois en cours (la course à laquelle
+ * on peut encore participer), le cumul de toujours (la carrière) et le
+ * palmarès des mois écoulés (ce qui reste quand le mois est fini).
+ */
 leaderboardRouter.get('/leaderboard', (req, res) => {
-  const scope = req.query.scope === 'today' ? 'today' : 'all';
+  const scope = ['month', 'all', 'hall'].includes(req.query.scope) ? req.query.scope : 'month';
   const date = todayUtc();
+  const month = currentMonth();
 
+  // Un seul appel, plutot qu'une requete par ligne de classement.
+  const soutiens = supporterIds();
+
+  /* ------------------------- Palmarès --------------------------- */
+  if (scope === 'hall') {
+    return res.json({
+      scope,
+      date,
+      month,
+      champions: pastChampions().map((c) => ({
+        month: c.month,
+        userId: c.user_id,
+        username: c.username,
+        isPremium: Boolean(c.is_premium),
+        isSupporter: c.user_id ? soutiens.has(c.user_id) : false,
+        total: c.total,
+        days: c.days,
+      })),
+    });
+  }
+
+  /* --------------------- Mois en cours / général ---------------- */
   const rows =
-    scope === 'today'
-      ? db
-          .prepare(
-            `SELECT u.id, u.username, u.is_premium, r.score AS total, r.attempts, r.seconds, 1 AS days
-             FROM daily_results r JOIN users u ON u.id = r.user_id
-             WHERE r.date = ? AND r.outcome = 'found'
-             ORDER BY r.score DESC, r.seconds ASC LIMIT 100`
-          )
-          .all(date)
+    scope === 'month'
+      ? monthlyRanking(month)
       : db
           .prepare(
             `SELECT u.id, u.username, u.is_premium, SUM(r.score) AS total, COUNT(*) AS days,
@@ -31,9 +54,6 @@ leaderboardRouter.get('/leaderboard', (req, res) => {
              GROUP BY u.id ORDER BY total DESC LIMIT 100`
           )
           .all();
-
-  // Un seul appel, plutot qu'une requete par ligne de classement.
-  const soutiens = supporterIds();
 
   const entries = rows.map((r, i) => ({
     position: i + 1,
@@ -58,7 +78,7 @@ leaderboardRouter.get('/leaderboard', (req, res) => {
     me = found || { position: null, userId: payload.sub, username: payload.username, total: 0, days: 0 };
   }
 
-  res.json({ scope, date, puzzleNumber: puzzleNumber(date), entries, me });
+  res.json({ scope, date, month, puzzleNumber: puzzleNumber(date), entries, me });
 });
 
 /** POST /api/presence — ping de présence, renvoie le nombre de connectés. */
