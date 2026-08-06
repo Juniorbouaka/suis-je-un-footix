@@ -210,12 +210,22 @@ export default function Arena() {
   const draw = Boolean(over?.draw) || over?.reason === 'exhausted';
   const iWon = over && over.winnerId === myId;
   const timedOut = over?.reason === 'timeout';
+
+  /*
+   * Victoire obtenue parce que l'autre a quitté la partie, pas parce qu'on a
+   * trouvé. Annoncer « Victoire » tout court laissait croire à un duel gagné
+   * sur le terrain, alors que personne n'avait trouvé le joueur mystère. On
+   * nomme donc la raison, et on garde les confettis pour les vraies.
+   */
+  const walkover = Boolean(over?.walkover);
+  const jeGagneParForfait = iWon && walkover;
+  const jePersDsParForfait = over && !iWon && walkover;
   const myLast = me?.guesses?.at(-1);
   const foeLast = foe?.guesses?.at(-1);
 
   return (
     <div>
-      {iWon && <Confetti />}
+      {iWon && !walkover && <Confetti />}
 
       <PremiumModal
         open={Boolean(quota)}
@@ -237,14 +247,44 @@ export default function Arena() {
             <Icon name={draw ? 'swords' : iWon ? 'trophy' : 'flag'} size={40} strokeWidth={1.5} />
           </div>
           <h2 style={{ fontSize: 24, margin: '10px 0 4px' }}>
-            {draw ? 'Match nul' : iWon ? 'Victoire' : 'Défaite'}
+            {draw
+              ? 'Match nul'
+              : jeGagneParForfait
+                ? 'Forfait de ton adversaire'
+                : jePersDsParForfait
+                  ? 'Forfait'
+                  : iWon
+                    ? 'Victoire'
+                    : 'Défaite'}
           </h2>
           <p className="muted">
-            {over.reason === 'disconnect' && 'Adversaire déconnecté. '}
-            {over.reason === 'surrender' && 'Partie terminée par abandon. '}
+            {/* La raison AVANT tout le reste : sans elle, un gain sur forfait
+                ressemble à une victoire volée. */}
+            {jeGagneParForfait && (
+              <>
+                {timedOut
+                  ? `Ton adversaire a laissé filer ${state.maxMissedTurns ?? 3} tours d'affilée sans jouer : il déclare forfait, tu remportes le duel. `
+                  : over.reason === 'disconnect'
+                    ? 'Ton adversaire s’est déconnecté et n’est pas revenu : il déclare forfait, tu remportes le duel. '
+                    : 'Ton adversaire a abandonné la partie : tu remportes le duel. '}
+                <strong>Personne n’a trouvé le joueur mystère</strong>, la victoire compte donc
+                moins qu’un duel gagné sur le terrain.{' '}
+              </>
+            )}
+
+            {jePersDsParForfait && (
+              <>
+                {timedOut
+                  ? `Tu as laissé filer ${state.maxMissedTurns ?? 3} tours d'affilée sans jouer : forfait. `
+                  : over.reason === 'disconnect'
+                    ? 'Tu as quitté la partie trop longtemps : forfait. '
+                    : 'Tu as abandonné la partie. '}
+              </>
+            )}
+
             {draw &&
               `Vous avez épuisé vos ${state.maxAttempts ?? 15} essais sans trouver : personne ne gagne, personne ne perd. `}
-            {timedOut && 'Trois tours laissés filer : forfait. '}
+
             Le joueur mystère était
           </p>
           <p className="result-word">{over.secret}</p>

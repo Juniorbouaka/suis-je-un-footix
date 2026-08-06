@@ -23,8 +23,34 @@ export function soloScore({ attempts, seconds }) {
  * avoir tenu ses quinze essais face à un adversaire qui a échoué aussi, ce
  * n'est pas gagner, mais ce n'est pas non plus abandonner au premier tour.
  */
-export function multiplayerScore({ won, draw = false, attempts, durationMs, streak = 0 }) {
+export function multiplayerScore({
+  won,
+  draw = false,
+  attempts,
+  durationMs,
+  streak = 0,
+  // Victoire obtenue parce que l'adversaire a quitté la partie — forfait,
+  // abandon ou déconnexion — et non parce qu'on a trouvé le joueur mystère.
+  walkover = false,
+}) {
   if (!won) return draw ? 100 : 50;
+
+  /*
+   * Le forfait vaut une victoire, mais pas le prix d'une victoire.
+   *
+   * Avant, gagner sur forfait rapportait 343 points quand trouver le joueur
+   * en trois essais en rapportait 378 : presque la même chose pour un
+   * résultat qui n'a rien à voir. Pire, les deux bonus mentaient. Le bonus de
+   * rapidité récompensait le fait que l'adversaire soit parti tôt — plus il
+   * partait vite, plus on gagnait. Le bonus d'efficacité récompensait un
+   * nombre de tentatives qui n'a rien trouvé.
+   *
+   * Un forfait paie donc un montant fixe : au-dessus du match nul, parce
+   * qu'être resté vaut mieux qu'être parti, et loin en dessous d'une vraie
+   * victoire, parce que le joueur mystère n'a pas été trouvé.
+   */
+  if (walkover) return 150;
+
   const speedBonus = Math.max(0, Math.round((600_000 - durationMs) / 10_000));
   const efficiency = Math.max(0, 100 - Math.max(0, attempts - 1) * 10);
   return 200 + speedBonus + efficiency + streak * 50;
@@ -93,11 +119,17 @@ export function recordSoloWin(userId, { date, attempts, seconds, score }) {
  * laisse la série en l'état — elle ne repart pas de zéro parce que personne
  * n'a trouvé, mais elle ne progresse pas non plus sans victoire.
  */
-export function recordPvpResult(userId, { won, draw = false, points }) {
+export function recordPvpResult(userId, { won, draw = false, points, walkover = false }) {
   const stats = readStats(userId);
   if (won) {
     stats.pvpWins += 1;
-    stats.pvpStreak = (stats.pvpStreak || 0) + 1;
+    /*
+     * Une victoire sur forfait compte comme victoire, mais ne PROLONGE pas la
+     * série : une série de victoires raconte une suite de duels gagnés sur le
+     * terrain, pas une suite d'adversaires partis. Elle n'est pas cassée non
+     * plus — le joueur n'a rien fait de mal, il était là.
+     */
+    if (!walkover) stats.pvpStreak = (stats.pvpStreak || 0) + 1;
   } else if (draw) {
     stats.pvpDraws = (stats.pvpDraws || 0) + 1;
   } else {

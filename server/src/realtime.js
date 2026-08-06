@@ -86,6 +86,10 @@ function roomState(room, { reveal = false } = {}) {
     turnDeadline: room.turnDeadline,
     startedAt: room.startedAt,
     maxAttempts: config.game.maxAttemptsPvp,
+    // L'écran de fin nomme le nombre de tours manqués : il doit venir d'ici
+    // plutôt que d'un « 3 » écrit en dur côté client, qui mentirait le jour
+    // où MAX_MISSED_TURNS change.
+    maxMissedTurns: config.game.maxMissedTurns,
     winnerId: room.winnerId,
     endReason: room.endReason,
     // Le joueur mystere n'est devoile qu'a la fin de la partie.
@@ -199,6 +203,13 @@ function finishGame(io, room, { winnerId, reason }) {
    */
   const draw = !winnerId && reason === 'exhausted';
 
+  /*
+   * Victoire par abandon de l'autre : il y a un vainqueur, mais personne n'a
+   * trouvé le joueur mystère. Le gain et la série en tiennent compte, et
+   * l'écran de fin le dit au lieu d'annoncer une victoire sèche.
+   */
+  const walkover = Boolean(winnerId) && reason !== 'found';
+
   const summary = {};
   for (const id of room.order) {
     const won = id === winnerId;
@@ -206,11 +217,12 @@ function finishGame(io, room, { winnerId, reason }) {
     const points = multiplayerScore({
       won,
       draw,
+      walkover,
       attempts: room.players[id].guesses.length,
       durationMs,
-      streak: won ? stats.pvpStreak || 0 : 0,
+      streak: won && !walkover ? stats.pvpStreak || 0 : 0,
     });
-    const nextStats = recordPvpResult(id, { won, draw, points });
+    const nextStats = recordPvpResult(id, { won, draw, points, walkover });
     const unlocked = evaluatePvp(id, { won, secretWord: room.secret });
     summary[id] = { points, won, draw, stats: nextStats, unlocked };
   }
@@ -220,6 +232,10 @@ function finishGame(io, room, { winnerId, reason }) {
     durationMs,
     reason,
     draw,
+    walkover,
+    // Qui a quitté la partie : l'écran de fin doit pouvoir nommer la raison
+    // plutôt que laisser croire à une victoire gagnée sur le terrain.
+    quitterId: walkover ? opponentOf(room, winnerId) : null,
     summary,
   });
 
