@@ -48,7 +48,21 @@ const limiter = rateLimit({
  * voulait donner, il ne doit pas repartir les mains vides à cause d'une
  * variable d'environnement.
  */
-function indisponible() {
+function indisponible(ou) {
+  /*
+   * On TRACE le refus. La première version renvoyait ce 503 en silence : quand
+   * un joueur a signalé « le paiement par carte est momentanément
+   * indisponible », les logs ne contenaient rien du tout, et il était
+   * impossible de distinguer un verrou fermé d'un appel Stripe en échec. Un
+   * message d'erreur qui ne laisse pas de trace côté serveur est un message
+   * qu'on ne pourra pas expliquer.
+   */
+  const etat = stripeAuthState();
+  console.warn(
+    `[stripe] refus sur ${ou} — configuree: ${etat.configured}, utilisable: ${etat.usable}` +
+      (etat.rejectedSince ? `, cle refusee depuis ${etat.rejectedSince}` : '')
+  );
+
   return stripeEnabled
     ? 'Le paiement par carte est momentanément indisponible. PayPal fonctionne normalement.'
     : "Le paiement par carte n'est pas encore ouvert.";
@@ -67,7 +81,7 @@ function planPourPrix(priceId) {
 
 stripeRouter.post('/subscribe', requireAuth, limiter, async (req, res) => {
   if (!stripeUsable()) {
-    return res.status(503).json({ error: indisponible() });
+    return res.status(503).json({ error: indisponible('subscribe (verrou)') });
   }
   if (req.user.is_premium) {
     return res.status(409).json({ error: 'Tu es déjà abonné.' });
@@ -92,7 +106,7 @@ stripeRouter.post('/subscribe', requireAuth, limiter, async (req, res) => {
     res.json({ url });
   } catch (err) {
     console.error('[stripe] session d’abonnement :', err.message);
-    if (!stripeUsable()) return res.status(503).json({ error: indisponible() });
+    if (!stripeUsable()) return res.status(503).json({ error: indisponible('subscribe (echec appel)') });
     res.status(502).json({ error: "Stripe n'a pas pu ouvrir le paiement. Réessaie." });
   }
 });
@@ -166,7 +180,7 @@ stripeRouter.post('/cancel', requireAuth, limiter, async (req, res) => {
 
 stripeRouter.post('/donate', limiter, async (req, res) => {
   if (!stripeUsable()) {
-    return res.status(503).json({ error: indisponible() });
+    return res.status(503).json({ error: indisponible('donate (verrou)') });
   }
 
   const n = Number(req.body?.amount);
@@ -198,7 +212,7 @@ stripeRouter.post('/donate', limiter, async (req, res) => {
     console.error('[stripe] session de don :', err.message);
     // Si c'est la clé qui vient d'être refusée, « réessaie » serait un
     // mensonge : le prochain essai échouera pareil.
-    if (!stripeUsable()) return res.status(503).json({ error: indisponible() });
+    if (!stripeUsable()) return res.status(503).json({ error: indisponible('donate (echec appel)') });
     res.status(502).json({ error: "Stripe n'a pas pu ouvrir le paiement. Réessaie." });
   }
 });

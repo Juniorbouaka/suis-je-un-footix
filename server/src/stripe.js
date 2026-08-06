@@ -42,9 +42,38 @@ export const stripeIsLive = config.stripe.secretKey.startsWith('sk_live_');
 
 let refusDepuis = null;
 
-/** Stripe est-il configuré ET en état de répondre ? */
+/*
+ * Combien de temps on garde la carte fermée après un refus.
+ *
+ * La première version verrouillait jusqu'au redémarrage. Trop brutal, et pour
+ * une raison qui compte : UN seul 401 — passager, ou une réponse bizarre de
+ * Stripe un mauvais jour — suffisait à couper le paiement par carte pendant
+ * des heures, en silence, sans que personne ne s'en aperçoive avant le
+ * prochain déploiement. Le remède devenait pire que le mal qu'il soignait.
+ *
+ * Deux minutes suffisent à éviter d'afficher un bouton mort en boucle. Passé
+ * ce délai, on retente pour de vrai : si la clé est réellement morte, le refus
+ * revient immédiatement et le bouton disparaît de nouveau ; si c'était un
+ * hoquet, la boutique rouvre toute seule.
+ */
+const OUBLI_MS = 2 * 60_000;
+
+/**
+ * Stripe est-il configuré ET en état de répondre ?
+ *
+ * Effet de bord assumé : au-delà du délai d'oubli, l'appel efface le refus
+ * pour qu'un vrai essai reparte. C'est ce qui rend la panne auto-réparable.
+ */
 export function stripeUsable() {
-  return stripeEnabled && !refusDepuis;
+  if (!stripeEnabled) return false;
+  if (!refusDepuis) return true;
+
+  if (Date.now() - refusDepuis > OUBLI_MS) {
+    console.log('[stripe] nouvelle tentative après refus — la carte est réouverte à l’essai.');
+    refusDepuis = null;
+    return true;
+  }
+  return false;
 }
 
 /** État détaillé, pour le tableau de bord et la route /status. */
@@ -109,11 +138,12 @@ export async function stripeRequest(method, path, corps, entetes = {}) {
      * ou un 402 ne concerne que la requête en cours, et couper Stripe pour
      * un montant invalide serait absurde.
      */
-    if (res.status === 401 && !refusDepuis) {
+    if (res.status === 401) {
       refusDepuis = Date.now();
       console.error(
-        `[stripe] clé refusée (${detail}) — le paiement par carte est désactivé ` +
-          `jusqu'à ce qu'un appel repasse. Corrige STRIPE_SECRET_KEY chez l'hébergeur.`
+        `[stripe] CLE REFUSEE sur ${method} ${path} (${detail}) — paiement par carte ` +
+          `suspendu 2 min, puis nouvel essai. Si ca se repete, corrige ` +
+          `STRIPE_SECRET_KEY chez l'hebergeur.`
       );
     }
 
