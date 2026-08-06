@@ -49,7 +49,7 @@ billingRouter.get('/offer', (req, res) => {
     donateUrl: config.donateUrl || null,
     providers: {
       paypal: paypalEnabled,
-      stripe: stripeEnabled,
+      stripe: stripeUsable(),
     },
     plans: Object.values(PLANS).map((p) => ({
       key: p.key,
