@@ -419,6 +419,14 @@ export function attachRealtime(httpServer) {
         if (err.name !== 'EvaluateurIndisponible') throw err;
         const encore = rooms.get(room.id);
         if (encore && encore.status === 'playing' && encore.turn === user.id) {
+          /*
+           * Ce joueur ETAIT la et a joue : c'est le serveur qui n'a pas su
+           * repondre. Sa serie de tours manques repart donc a zero, sinon une
+           * panne de l'evaluateur le declarerait forfait pour une faute qui
+           * n'est pas la sienne — trois refus d'affilee et il perd la partie
+           * sans avoir rien fait de mal.
+           */
+          encore.missedTurns[user.id] = 0;
           startTurnTimer(io, encore);
         }
         return socket.emit('error-message', { error: err.message });
