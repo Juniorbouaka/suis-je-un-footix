@@ -8,15 +8,17 @@ import Icon from '../components/Icon.jsx';
 /**
  * L'offre premium.
  *
- * Le cœur de l'offre est le volume de jeu quotidien : quinze chances et deux
- * duels en gratuit, cinquante chances et vingt duels avec l'abonnement.
+ * Le cœur de l'offre est le volume de jeu quotidien : quinze chances et un
+ * duel en gratuit, cinquante chances et cinq duels avec l'abonnement.
  * Chaque proposition part vers l'API Claude et se paie, alors le volume est
  * devenu ce qui distingue les deux forfaits — c'est le poste de dépense,
  * donc c'est ce qui se vend.
  *
  * Ce que l'abonnement ne donne toujours pas : d'indice, de point offert, ni
  * d'accès à un meilleur évaluateur. Le score reste calculé de la même
- * manière pour tous, et il baisse à chaque tentative supplémentaire.
+ * manière pour tous, et il baisse à chaque tentative supplémentaire. En
+ * duel, il ne donne pas non plus un essai de plus : quinze pour tout le
+ * monde, sinon ce n'est plus un duel.
  */
 
 const AVANTAGES = [
@@ -27,8 +29,8 @@ const AVANTAGES = [
   },
   {
     icon: 'swords',
-    titre: '20 duels par jour',
-    texte: 'Au lieu de 2. Revanches comprises.',
+    titre: '5 duels par jour',
+    texte: 'Au lieu d’un seul. Revanches comprises, et toujours 15 essais chacun.',
   },
   {
     icon: 'flag',
@@ -108,7 +110,7 @@ export default function Premium() {
         <h1 style={{ fontSize: 30, margin: '14px 0 8px' }}>Soutiens le jeu, débloque tout</h1>
         <p className="muted" style={{ maxWidth: 520, margin: '0 auto' }}>
           Chaque proposition est évaluée par une IA, et ça se paye. L'abonnement fait vivre le jeu —
-          et fait passer ta journée de 15 à 50 chances et de 2 à 20 duels, sans publicité, archives
+          et fait passer ta journée de 15 à 50 chances et d'un à 5 duels, sans publicité, archives
           comprises.
         </p>
       </div>

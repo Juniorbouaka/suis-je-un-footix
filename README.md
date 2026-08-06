@@ -119,7 +119,7 @@ droit attaché au compte du jeu, pas un mot de passe supplémentaire : le serveu
 qui n'y figure pas, et retirer une adresse suffit à couper l'accès.
 
 **Un administrateur a aussi l'accès premium complet**, sans abonnement et sans écriture en base
-(`findUserById`) : 50 chances, 20 duels, archives, statistiques et thèmes. Celui qui paie l'API
+(`findUserById`) : 50 chances, 5 duels, archives, statistiques et thèmes. Celui qui paie l'API
 du jeu n'a pas à s'abonner à son propre jeu, et il doit pouvoir vérifier ce que voient ses
 abonnés. Retirer l'adresse de `ADMIN_EMAILS` retire les deux droits d'un coup, sans rien laisser
 à nettoyer dans la base.
@@ -220,12 +220,17 @@ Un joueur qui s'abonne après avoir épuisé ses quinze chances retrouve sa part
 (`reopenIfUpgraded`) : on ne vend pas cinquante chances pour en livrer zéro.
 
 **Duel** — les deux cherchent le même joueur mystère, les tours alternent, le premier qui donne le
-nom exact gagne. **20 essais chacun** (`MAX_ATTEMPTS_PVP`) : quand les deux sont à sec sans avoir
-trouvé, **les deux perdent** — il n'y a pas de match nul. `score = 200 + bonus de rapidité + bonus
-d'efficacité + 50 × série`. Défaite : 50 points de participation.
+nom exact gagne. **15 essais chacun** (`MAX_ATTEMPTS_PVP`) — le même nombre pour l'abonné et le
+gratuit : l'argent achète des duels, jamais un avantage à l'intérieur d'un duel. Quand les deux
+sont à sec sans avoir trouvé, c'est **match nul** : ni victoire ni défaite au compteur, la série
+de victoires est gelée sans être cassée. `score = 200 + bonus de rapidité + bonus d'efficacité +
+50 × série`. Nul : 100 points. Défaite : 50 points de participation.
 
-**2 duels par jour** en gratuit (`MAX_DUELS_FREE`), **20 pour les abonnés**
-(`MAX_DUELS_PREMIUM`) : un duel, ce sont deux joueurs et jusqu'à quarante propositions évaluées.
+L'abandon, le forfait (trois tours manqués) et la déconnexion restent des défaites : l'un des
+deux a quitté la partie, l'autre l'a tenue jusqu'au bout.
+
+**1 duel par jour** en gratuit (`MAX_DUELS_FREE`), **5 pour les abonnés**
+(`MAX_DUELS_PREMIUM`) : un duel, ce sont deux joueurs et jusqu'à trente propositions évaluées.
 Le compte se lit dans `multiplay_games` — abandons et déconnexions inclus, ils ont coûté leurs
 appels comme les autres — et le refus est prononcé par la socket avant la dépense, à l'entrée en
 matchmaking, à la création ou l'acceptation d'une invitation, et **à la revanche** (sans quoi le

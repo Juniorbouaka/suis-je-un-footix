@@ -115,14 +115,15 @@ export default function Matchmaking() {
         open={quotaAtteint}
         onClose={() => setQuotaAtteint(false)}
         titre="Tes duels du jour sont joués"
-        texte={`Le gratuit donne ${quota?.freeMax ?? 2} duels par jour — un duel, ce sont deux
-                joueurs et jusqu'à 20 propositions chacun, tout ça évalué par l'IA. L'abonnement
-                monte à ${quota?.premiumMax ?? 20} duels quotidiens.`}
+        texte={`Le gratuit donne ${quota?.freeMax ?? 1} duel par jour — un duel, ce sont deux
+                joueurs et jusqu'à 15 propositions chacun, tout ça évalué par l'IA. L'abonnement
+                monte à ${quota?.premiumMax ?? 5} duels quotidiens, toujours 15 essais chacun.`}
       />
 
       <h1 style={{ fontSize: 26, marginBottom: 6 }}>Mode duel</h1>
       <p className="muted" style={{ marginBottom: 14 }}>
-        Vous cherchez le même joueur mystère, chacun son tour. Le premier à donner son nom gagne.
+        Vous cherchez le même joueur mystère, chacun son tour, avec 15 essais chacun. Le premier à
+        donner son nom gagne — si personne ne le trouve, c'est match nul.
       </p>
 
       {restants !== null && (

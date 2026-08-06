@@ -16,8 +16,15 @@ export function soloScore({ attempts, seconds }) {
  *  Scoring multijoueur
  * ------------------------------------------------------------------ */
 
-export function multiplayerScore({ won, attempts, durationMs, streak = 0 }) {
-  if (!won) return 50;
+/**
+ * Points d'un duel.
+ *
+ * Le match nul vaut le double de la défaite sans approcher la victoire :
+ * avoir tenu ses quinze essais face à un adversaire qui a échoué aussi, ce
+ * n'est pas gagner, mais ce n'est pas non plus abandonner au premier tour.
+ */
+export function multiplayerScore({ won, draw = false, attempts, durationMs, streak = 0 }) {
+  if (!won) return draw ? 100 : 50;
   const speedBonus = Math.max(0, Math.round((600_000 - durationMs) / 10_000));
   const efficiency = Math.max(0, 100 - Math.max(0, attempts - 1) * 10);
   return 200 + speedBonus + efficiency + streak * 50;
@@ -41,12 +48,13 @@ export function readStats(userId) {
       fastestSeconds: null,
       pvpWins: 0,
       pvpLosses: 0,
+      pvpDraws: 0,
       pvpStreak: 0,
       languages: ['fr'],
       ...JSON.parse(row.stats_json || '{}'),
     };
   } catch {
-    return { totalScore: 0, daysCompleted: 0, currentStreak: 0, bestStreak: 0, pvpWins: 0, pvpLosses: 0, pvpStreak: 0 };
+    return { totalScore: 0, daysCompleted: 0, currentStreak: 0, bestStreak: 0, pvpWins: 0, pvpLosses: 0, pvpDraws: 0, pvpStreak: 0 };
   }
 }
 
@@ -78,11 +86,20 @@ export function recordSoloWin(userId, { date, attempts, seconds, score }) {
   return stats;
 }
 
-export function recordPvpResult(userId, { won, points }) {
+/**
+ * Enregistre l'issue d'un duel.
+ *
+ * Le nul ne touche ni aux victoires ni aux défaites : il a sa colonne. Et il
+ * laisse la série en l'état — elle ne repart pas de zéro parce que personne
+ * n'a trouvé, mais elle ne progresse pas non plus sans victoire.
+ */
+export function recordPvpResult(userId, { won, draw = false, points }) {
   const stats = readStats(userId);
   if (won) {
     stats.pvpWins += 1;
     stats.pvpStreak = (stats.pvpStreak || 0) + 1;
+  } else if (draw) {
+    stats.pvpDraws = (stats.pvpDraws || 0) + 1;
   } else {
     stats.pvpLosses += 1;
     stats.pvpStreak = 0;

@@ -53,26 +53,34 @@ export const config = {
    * partie ouverte à cinquante essais pour tout le monde coûtait plus cher
    * que ce qu'elle rapportait. Quinze chances suffisent à jouer sa journée,
    * cinquante sont le confort qu'on achète.
+   *
+   * En duel, cette frontière disparaît : les quinze essais sont les mêmes
+   * pour les deux adversaires. Ce que l'abonnement achète, c'est le nombre
+   * de duels dans la journée — jamais un avantage à l'intérieur d'un duel.
    */
   game: {
     guessesPerMinute: 10, // rate limit métier (cahier des charges §8)
     minGuessIntervalMs: 1000, // max 1 appel/sec par joueur (§5)
     maxAttemptsFree: Number(process.env.MAX_ATTEMPTS_FREE || 15), // solo gratuit : au-delà, perdu
     maxAttemptsPremium: Number(process.env.MAX_ATTEMPTS_PREMIUM || 50), // solo abonné
-    maxAttemptsPvp: Number(process.env.MAX_ATTEMPTS_PVP || 20), // duel : à sec => perdu
+    // Duel : quinze essais chacun, abonné comme gratuit. C'est le seul
+    // chiffre du jeu que l'argent ne change pas — deux adversaires qui ne
+    // jouent pas avec le même nombre de balles ne font pas un duel.
+    maxAttemptsPvp: Number(process.env.MAX_ATTEMPTS_PVP || 15),
     turnMs: Number(process.env.TURN_MS || 15000), // duel : 15 s pour proposer
     maxMissedTurns: Number(process.env.MAX_MISSED_TURNS || 3), // 3 tours manqués = forfait
 
     /*
      * Duels par jour. Un duel, ce sont deux joueurs qui proposent jusqu'à
-     * vingt mots chacun : c'est le format le plus cher du jeu, et le seul
+     * quinze mots chacun : c'est le format le plus cher du jeu, et le seul
      * qu'un visiteur pouvait enchaîner sans limite.
      *
-     * Le plafond de l'abonné n'est pas une punition mais un garde-fou : à
-     * vingt duels dans la journée, on n'est plus dans l'usage d'un joueur.
+     * Un duel par jour en gratuit : le rendez-vous quotidien, comme la
+     * partie du jour. L'abonnement en donne cinq, et pas plus — le plafond
+     * n'est pas une punition mais un garde-fou de dépense.
      */
-    duelsPerDayFree: Number(process.env.MAX_DUELS_FREE || 2),
-    duelsPerDayPremium: Number(process.env.MAX_DUELS_PREMIUM || 20),
+    duelsPerDayFree: Number(process.env.MAX_DUELS_FREE || 1),
+    duelsPerDayPremium: Number(process.env.MAX_DUELS_PREMIUM || 5),
   },
 
   // URL publique du site, utilisée dans les e-mails (lien de réinitialisation).

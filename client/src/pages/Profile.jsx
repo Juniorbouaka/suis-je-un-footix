@@ -34,7 +34,10 @@ export default function Profile() {
   };
 
   const earned = achievements.filter((a) => a.earned).length;
-  const duels = (stats?.pvpWins ?? 0) + (stats?.pvpLosses ?? 0);
+  // Les matchs nuls comptent dans le total des duels joués mais pas dans le
+  // taux de victoire : ni gagnés, ni perdus.
+  const nuls = stats?.pvpDraws ?? 0;
+  const duels = (stats?.pvpWins ?? 0) + (stats?.pvpLosses ?? 0) + nuls;
   const winRate = duels > 0 ? Math.round((stats.pvpWins / duels) * 100) : null;
 
   return (
@@ -84,7 +87,10 @@ export default function Profile() {
               {stats?.pvpWins ?? 0}
               <span className="faint">/{duels}</span>
             </div>
-            <div className="stat-label">Duels gagnés{winRate !== null ? ` (${winRate} %)` : ''}</div>
+            <div className="stat-label">
+              Duels gagnés{winRate !== null ? ` (${winRate} %)` : ''}
+              {nuls > 0 ? ` · ${nuls} nul${nuls > 1 ? 's' : ''}` : ''}
+            </div>
           </div>
         </div>
       </div>

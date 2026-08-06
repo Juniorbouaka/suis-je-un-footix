@@ -205,9 +205,9 @@ export default function Arena() {
 
   /* --------------------------- L'arène ---------------------------- */
 
-  // Personne n'a trouvé en vingt essais : les deux perdent, il n'y a plus de
-  // match nul.
-  const bothLost = over?.reason === 'exhausted';
+  // Personne n'a trouvé en quinze essais : match nul. C'est la seule issue
+  // sans vainqueur — un abandon ou un forfait fait toujours un gagnant.
+  const draw = Boolean(over?.draw) || over?.reason === 'exhausted';
   const iWon = over && over.winnerId === myId;
   const timedOut = over?.reason === 'timeout';
   const myLast = me?.guesses?.at(-1);
@@ -221,8 +221,8 @@ export default function Arena() {
         open={Boolean(quota)}
         onClose={() => setQuota(null)}
         titre="Tes duels du jour sont joués"
-        texte={`La revanche compte comme un duel de plus, et tu as utilisé tes ${quota?.max ?? 2}
-                du jour. L'abonnement monte à ${quota?.premiumMax ?? 20} duels quotidiens.`}
+        texte={`La revanche compte comme un duel de plus, et tu as utilisé ton quota du jour
+                (${quota?.max ?? 1}). L'abonnement monte à ${quota?.premiumMax ?? 5} duels quotidiens.`}
       />
 
       <div className="center" style={{ marginBottom: 12 }}>
@@ -234,14 +234,16 @@ export default function Arena() {
       {over ? (
         <div className="card center" style={{ marginBottom: 18 }}>
           <div className="result-icon">
-            <Icon name={iWon ? 'trophy' : 'flag'} size={40} strokeWidth={1.5} />
+            <Icon name={draw ? 'swords' : iWon ? 'trophy' : 'flag'} size={40} strokeWidth={1.5} />
           </div>
-          <h2 style={{ fontSize: 24, margin: '10px 0 4px' }}>{iWon ? 'Victoire' : 'Défaite'}</h2>
+          <h2 style={{ fontSize: 24, margin: '10px 0 4px' }}>
+            {draw ? 'Match nul' : iWon ? 'Victoire' : 'Défaite'}
+          </h2>
           <p className="muted">
             {over.reason === 'disconnect' && 'Adversaire déconnecté. '}
             {over.reason === 'surrender' && 'Partie terminée par abandon. '}
-            {bothLost &&
-              `Vous avez épuisé vos ${state.maxAttempts ?? 20} essais sans trouver : défaite pour vous deux. `}
+            {draw &&
+              `Vous avez épuisé vos ${state.maxAttempts ?? 15} essais sans trouver : personne ne gagne, personne ne perd. `}
             {timedOut && 'Trois tours laissés filer : forfait. '}
             Le joueur mystère était
           </p>
@@ -260,8 +262,9 @@ export default function Arena() {
             </div>
           )}
 
-          {/* Affiche quelle que soit l'issue, avec un texte adapte. */}
-          <SupportPrompt contexte="duel" issue={iWon ? 'gagne' : 'perdu'} />
+          {/* Affiche quelle que soit l'issue, avec un texte adapte. Un nul
+              n'est pas une defaite : on ne prend pas le ton de la consolation. */}
+          <SupportPrompt contexte="duel" issue={iWon || draw ? 'gagne' : 'perdu'} />
 
           <div className="row wrap" style={{ marginTop: 20, gap: 10, justifyContent: 'center' }}>
             <button className="btn" onClick={() => getSocket()?.emit('rematch')}>

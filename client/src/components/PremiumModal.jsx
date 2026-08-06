@@ -16,7 +16,7 @@ import Icon from './Icon.jsx';
 
 const AVANTAGES = [
   '50 chances par jour au lieu de 15',
-  '20 duels par jour au lieu de 2',
+  '5 duels par jour au lieu d’un seul',
   'Aucune publicité',
   'Toutes les archives, rejouables',
   'Statistiques détaillées et thèmes de terrain',

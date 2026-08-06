@@ -89,15 +89,16 @@ git status --short | grep -E "\.env$|footix\.db"   # ne doit rien afficher
    | `ADMIN_EMAILS` | ton adresse : ouvre `/admin` **et** donne l'accès premium complet |
    | `MAX_ATTEMPTS_FREE` | `15` |
    | `MAX_ATTEMPTS_PREMIUM` | `50` |
-   | `MAX_ATTEMPTS_PVP` | `20` |
-   | `MAX_DUELS_FREE` | `2` |
-   | `MAX_DUELS_PREMIUM` | `20` |
+   | `MAX_ATTEMPTS_PVP` | `15` |
+   | `MAX_DUELS_FREE` | `1` |
+   | `MAX_DUELS_PREMIUM` | `5` |
 
    Ne touche pas à `PORT` : Railway l'injecte.
 
-   ⚠️ Les anciennes variables `MAX_ATTEMPTS` et `MAX_ATTEMPTS_PVP=25` n'ont plus cours : si elles
-   traînent dans les variables du projet, supprime la première et corrige la seconde, sinon
-   l'ancien plafond du duel écrase le nouveau.
+   ⚠️ Ces trois dernières ont changé de valeur (duel : `20` → `15` essais, `2` → `1` duel gratuit,
+   `20` → `5` duels pour un abonné). Une variable déjà posée sur Railway **écrase** la valeur du
+   code : si elle traîne avec l'ancien chiffre, corrige-la ou supprime-la — le code retombera sur
+   la bonne valeur par défaut. Idem pour l'ancienne `MAX_ATTEMPTS`, qui n'a plus cours.
 
 4. **Générer le domaine** — onglet *Settings* → *Networking* → *Generate Domain*.
    Tu obtiens une URL en `.up.railway.app`.

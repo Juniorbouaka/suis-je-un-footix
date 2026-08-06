@@ -190,29 +190,36 @@ function finishGame(io, room, { winnerId, reason }) {
   }
 
   /*
-   * Il n'y a plus de match nul : un duel se gagne en trouvant le joueur
-   * mystère. Sans vainqueur, les deux repartent avec une défaite et les
-   * cinquante points de participation.
+   * Match nul : les deux ont brûlé leurs quinze essais sans trouver. Aucun
+   * des deux n'a démérité par rapport à l'autre, donc aucun ne prend une
+   * défaite — la série de victoires est gelée, pas cassée.
+   *
+   * L'abandon, le forfait et la déconnexion restent des défaites : là, l'un
+   * des deux a quitté la partie et l'autre l'a tenue jusqu'au bout.
    */
+  const draw = !winnerId && reason === 'exhausted';
+
   const summary = {};
   for (const id of room.order) {
     const won = id === winnerId;
     const stats = readStats(id);
     const points = multiplayerScore({
       won,
+      draw,
       attempts: room.players[id].guesses.length,
       durationMs,
       streak: won ? stats.pvpStreak || 0 : 0,
     });
-    const nextStats = recordPvpResult(id, { won, points });
+    const nextStats = recordPvpResult(id, { won, draw, points });
     const unlocked = evaluatePvp(id, { won, secretWord: room.secret });
-    summary[id] = { points, won, stats: nextStats, unlocked };
+    summary[id] = { points, won, draw, stats: nextStats, unlocked };
   }
 
   broadcast(io, room, 'game-over', {
     ...roomState(room, { reveal: true }),
     durationMs,
     reason,
+    draw,
     summary,
   });
 
@@ -429,9 +436,9 @@ export function attachRealtime(httpServer) {
 
       broadcast(io, room, 'guess-result', { playerId: user.id, ...entry, found: false });
 
-      // Les deux à sec : personne n'a trouvé, donc personne ne gagne. Ce
-      // n'est pas un match nul — un duel où les vingt essais passent sans
-      // trouver le joueur mystère est une défaite pour les deux.
+      // Les deux à sec : personne n'a trouvé, donc personne ne gagne — et
+      // personne ne perd. Quinze essais chacun sans trouver le joueur
+      // mystère, c'est un match nul.
       if (meDone && foeDone) {
         return finishGame(io, room, { winnerId: null, reason: 'exhausted' });
       }

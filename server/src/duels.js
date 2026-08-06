@@ -5,7 +5,7 @@ import { isAdmin } from './auth.js';
 /**
  * Le quota de duels quotidiens.
  *
- * Deux duels par jour en gratuit, vingt pour un abonné. Le compte se lit dans
+ * Un duel par jour en gratuit, cinq pour un abonné. Le compte se lit dans
  * `multiplay_games`, où chaque partie terminée laisse une ligne — y compris
  * les abandons et les déconnexions, qui ont coûté leurs appels à l'IA comme
  * les autres. Une partie en cours n'y figure pas encore : c'est voulu, un
