@@ -16,6 +16,7 @@ import PremiumThanks from './pages/PremiumThanks.jsx';
 import { MentionsLegales, Confidentialite, Cookies } from './pages/Legal.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
 import Admin from './pages/Admin.jsx';
+import TestFinPartie from './pages/TestFinPartie.jsx';
 
 function Protected({ children }) {
   const { isAuthenticated, loading } = useAuth();
@@ -118,6 +119,14 @@ export default function App() {
             </AdminOnly>
           }
         />
+        {/*
+          Aperçu de l'écran de fin de partie et de sa fenêtre « Envie de
+          rejouer ? ». Publique et sans effet : aucune donnée réelle, aucun
+          appel au serveur. C'est le seul moyen de regarder cet écran dans
+          ses trois issues sans jouer trois parties.
+        */}
+        <Route path="/test/fin-de-partie" element={<TestFinPartie />} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

@@ -97,25 +97,35 @@ function messagePour(contexte, serie, issue) {
   return 'Content que ça te plaise. Chaque proposition évaluée coûte quelques centimes — le jeu tient grâce à ceux qui donnent.';
 }
 
-export default function SupportPrompt({ contexte = 'solo', serie = 0, issue = 'gagne' }) {
+export default function SupportPrompt({
+  contexte = 'solo',
+  serie = 0,
+  issue = 'gagne',
+  // Court-circuite les règles de fréquence, et ne mémorise rien. Réservé à
+  // la page de test : sans ça, l'encart y serait invisible neuf fois sur
+  // dix, ce qui est le contraire de ce qu'on veut regarder.
+  force = false,
+}) {
   const { isPremium, stats } = useAuth();
   const partiesJouees = stats?.daysCompleted ?? 0;
 
   // La décision est prise une fois, à l'initialisation : sans cela, un
   // simple re-rendu ferait réapparaître l'encart après un refus.
-  const [visible, setVisible] = useState(() => autorise({ isPremium, partiesJouees }));
+  const [visible, setVisible] = useState(() => force || autorise({ isPremium, partiesJouees }));
 
   // L'affichage est mémorisé dans un effet, jamais pendant le rendu :
   // c'est lui qui fait courir le délai avant la prochaine sollicitation.
   useEffect(() => {
-    if (visible) ecrire({ ...lire(), vuLe: Date.now() });
-  }, [visible]);
+    if (visible && !force) ecrire({ ...lire(), vuLe: Date.now() });
+  }, [visible, force]);
 
   if (!visible) return null;
 
   const refuser = () => {
-    const etat = lire();
-    ecrire({ ...etat, refus: (etat.refus || 0) + 1, vuLe: Date.now() });
+    if (!force) {
+      const etat = lire();
+      ecrire({ ...etat, refus: (etat.refus || 0) + 1, vuLe: Date.now() });
+    }
     setVisible(false);
   };
 

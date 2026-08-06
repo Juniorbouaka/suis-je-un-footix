@@ -16,6 +16,7 @@ import { soloScore, recordSoloWin, readStats, rankFor } from '../scoring.js';
 import { evaluateSolo, listFor } from '../achievements.js';
 import { PITCH_THEMES, DEFAULT_THEME, findTheme, canUseTheme } from '../themes.js';
 import { duelQuota } from '../duels.js';
+import { trainingQuota } from '../training.js';
 
 export const gameRouter = Router();
 
@@ -122,6 +123,9 @@ gameRouter.get('/daily-word', requireAuth, async (req, res) => {
     remaining: Math.max(0, cap - guesses.length),
     isPremium: Boolean(req.user.is_premium),
     premiumAttempts: config.game.maxAttemptsPremium,
+    // Fin de partie : c'est là qu'on saura quoi proposer — les parties
+    // d'entraînement qui restent à un abonné, l'abonnement aux autres.
+    training: trainingQuota(req.user.id),
     solved: Boolean(result && result.outcome === 'found'),
     surrendered: Boolean(result && result.outcome === 'surrendered'),
     result: result
@@ -236,6 +240,7 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
       puzzleNumber: puzzleNumber(date),
     };
     payload.description = (await describePlayer(daily.word)).text;
+    payload.training = trainingQuota(req.user.id);
     return res.json(payload);
   }
 
@@ -263,6 +268,7 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
     payload.unlocked = unlocked;
     payload.stats = stats;
     payload.rank = rankFor(stats);
+    payload.training = trainingQuota(req.user.id);
   }
 
   res.json(payload);
@@ -307,6 +313,7 @@ gameRouter.post('/surrender', requireAuth, async (req, res) => {
     seconds: elapsedSeconds(req.user.id, date),
     score: 0,
     description: (await describePlayer(daily.word)).text,
+    training: trainingQuota(req.user.id),
   });
 });
 

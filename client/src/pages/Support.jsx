@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api, errorMessage } from '../lib/api.js';
 import Icon from '../components/Icon.jsx';
 import SupportWall from '../components/SupportWall.jsx';
+import { detailPaiement, libellePaiement, ouvrirDon, portefeuille } from '../lib/paiement.js';
 
 /**
  * Page de soutien.
@@ -11,6 +12,12 @@ import SupportWall from '../components/SupportWall.jsx';
  * Aucun compte n'est demandé : un visiteur de passage doit pouvoir donner
  * sans s'inscrire. Le montant part vers le serveur, qui le vérifie et ouvre
  * la commande — on ne fait jamais confiance au montant venu du navigateur.
+ *
+ * L'ordre des moyens de paiement n'est pas neutre. Le premier bouton est le
+ * paiement rapide (Apple Pay / Google Pay / carte, via Stripe) : sur
+ * téléphone, où se joue l'essentiel du trafic, c'est deux secondes et une
+ * empreinte digitale. Saisir seize chiffres au pouce est l'endroit exact où
+ * l'on renonce.
  *
  * Le mensonge à ne jamais commettre ici : laisser croire qu'un don donne un
  * avantage dans le jeu. Le texte dit l'inverse, et c'est ce qui rend la
@@ -20,8 +27,9 @@ export default function Support() {
   const [params] = useSearchParams();
   const [choisi, setChoisi] = useState(null);
   const [libre, setLibre] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const kind = portefeuille();
 
   const { data: options, isLoading } = useQuery({
     queryKey: ['donate-options'],
@@ -33,22 +41,26 @@ export default function Support() {
     queryFn: async () => (await api.get('/donate/stats')).data,
   });
 
+  // `!== false` et non `=== true` : tant que les options n'ont pas été
+  // chargées, on préfère afficher un bouton qui marchera à un écran vide.
+  const rapide = options?.providers?.stripe !== false;
+  const paypal = options?.providers?.paypal !== false;
+
   const montant = libre.trim() ? Number(libre.replace(',', '.')) : choisi;
   const valide =
     Number.isFinite(montant) &&
     montant >= (options?.min ?? 1) &&
     montant <= (options?.max ?? 500);
 
-  const donner = async () => {
+  const donner = async (moyen) => {
     if (!valide || busy) return;
-    setBusy(true);
+    setBusy(moyen);
     setError('');
     try {
-      const { data } = await api.post('/donate', { amount: montant });
-      window.location.href = data.approveUrl;
+      await ouvrirDon(montant, moyen);
     } catch (err) {
       setError(errorMessage(err));
-      setBusy(false);
+      setBusy('');
     }
   };
 
@@ -105,18 +117,49 @@ export default function Support() {
           </div>
         </div>
 
-        <button
-          className="btn btn-lg"
-          style={{ width: '100%', marginTop: 18 }}
-          disabled={!valide || busy || !options?.enabled}
-          onClick={donner}
-        >
-          {busy
-            ? 'Redirection…'
-            : valide
-              ? `Donner ${montant} €`
-              : 'Choisis un montant'}
-        </button>
+        {/* Le paiement rapide d'abord : c'est celui qui aboutit sur
+            téléphone. PayPal ensuite, pour ceux qui y tiennent — mais s'il
+            est le seul disponible, il prend la place du bouton principal :
+            un unique moyen de paiement affiché en secondaire ressemble à
+            une option qu'on aurait oublié d'activer. */}
+        {rapide && (
+          <button
+            className={`btn btn-lg btn-block btn-wallet wallet-${kind || 'card'}`}
+            style={{ marginTop: 18 }}
+            disabled={!valide || Boolean(busy) || !options?.enabled}
+            onClick={() => donner('stripe')}
+          >
+            <Icon name={kind ? 'bolt' : 'heart'} size={18} />
+            {busy === 'stripe'
+              ? 'Redirection…'
+              : valide
+                ? `${libellePaiement(kind)} · ${montant} €`
+                : 'Choisis un montant'}
+          </button>
+        )}
+
+        {rapide && (
+          <p className="small faint center" style={{ marginTop: 8, marginBottom: 0 }}>
+            {detailPaiement(kind)}
+          </p>
+        )}
+
+        {paypal && (
+          <button
+            className={`btn btn-block${rapide ? ' btn-ghost' : ' btn-lg'}`}
+            style={{ marginTop: rapide ? 12 : 18 }}
+            disabled={!valide || Boolean(busy) || !options?.enabled}
+            onClick={() => donner('paypal')}
+          >
+            {busy === 'paypal'
+              ? 'Redirection…'
+              : rapide
+                ? 'Payer avec PayPal'
+                : valide
+                  ? `Payer avec PayPal · ${montant} €`
+                  : 'Choisis un montant'}
+          </button>
+        )}
 
         {!options?.enabled && (
           <p className="small muted center" style={{ marginTop: 12 }}>
@@ -131,8 +174,7 @@ export default function Support() {
         )}
 
         <p className="small muted center" style={{ marginTop: 16 }}>
-          Paiement par PayPal ou carte bancaire, sans créer de compte. Don ponctuel, sans
-          engagement.
+          Don ponctuel, sans engagement et sans création de compte.
         </p>
       </div>
 

@@ -18,7 +18,7 @@ function formatDate(iso) {
   });
 }
 
-function Statut({ day }) {
+function Statut({ day, quotaEpuise }) {
   if (day.locked) {
     return (
       <span className="pill faint">
@@ -46,6 +46,15 @@ function Statut({ day }) {
   }
   if (day.inProgress) return <span className="pill">en cours</span>;
   if (day.replayable) {
+    // Plus de crédit d'entraînement : annoncer « à jouer » serait promettre
+    // une partie que le serveur refusera. On dit quand elle rouvre.
+    if (quotaEpuise) {
+      return (
+        <span className="pill faint">
+          <Icon name="clock" size={12} /> demain
+        </span>
+      );
+    }
     return (
       <span className="pill pill-action">
         <Icon name="play" size={12} /> à jouer
@@ -70,6 +79,10 @@ export default function Archive() {
 
   const days = data?.days || [];
   const aJouer = days.filter((d) => !d.locked && d.replayable && !d.replay).length;
+  const training = data?.training;
+  const restantes = training?.remaining ?? 0;
+  const quotaEpuise = Boolean(data?.isPremium && training?.max > 0 && restantes === 0);
+  const enCours = days.filter((d) => d.inProgress).length;
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -77,19 +90,39 @@ export default function Archive() {
         <div>
           <h1 style={{ fontSize: 26 }}>Archives</h1>
           <p className="muted small">
-            {aJouer > 0
-              ? `${aJouer} journée${aJouer > 1 ? 's' : ''} que tu peux encore jouer.`
-              : 'Les joueurs mystères des jours précédents.'}
+            {quotaEpuise
+              ? enCours > 0
+                ? `${enCours} partie${enCours > 1 ? 's' : ''} en cours à terminer — les autres rouvrent à minuit.`
+                : 'Tes parties d’entraînement rouvrent à minuit.'
+              : aJouer > 0
+                ? `${aJouer} journée${aJouer > 1 ? 's' : ''} que tu peux encore jouer.`
+                : 'Les joueurs mystères des jours précédents.'}
           </p>
         </div>
-        {data?.isPremium ? (
-          <span className="pill pill-green">
-            <Icon name="crown" size={13} /> Accès complet
-          </span>
-        ) : (
-          <span className="pill">{data?.freeDays} derniers jours en accès libre</span>
-        )}
+        <div className="row wrap" style={{ gap: 8 }}>
+          {/* Le quota s'affiche AVANT le clic : ouvrir une journée pour
+              apprendre qu'on n'a plus de crédit serait une petite trahison. */}
+          {data?.isPremium && training?.max > 0 && (
+            <span className={`pill${restantes > 0 ? ' pill-green' : ''}`}>
+              <Icon name="repeat" size={13} /> {restantes}/{training.max} entraînement
+            </span>
+          )}
+          {data?.isPremium ? (
+            <span className="pill pill-green">
+              <Icon name="crown" size={13} /> Accès complet
+            </span>
+          ) : (
+            <span className="pill">{data?.freeDays} derniers jours en accès libre</span>
+          )}
+        </div>
       </div>
+
+      {data?.isPremium && restantes === 0 && training?.max > 0 && (
+        <div className="alert alert-info" style={{ marginBottom: 16 }}>
+          Tes {training.max} parties d'entraînement du jour sont utilisées — les journées déjà
+          commencées restent terminables. Tout se remet à zéro à minuit.
+        </div>
+      )}
 
       {days.length === 0 ? (
         <div className="card center">
@@ -107,7 +140,7 @@ export default function Archive() {
                   </span>
                   <span className="row" style={{ gap: 8 }}>
                     <span className="mono faint small hide-sm">{formatDate(day.date)}</span>
-                    <Statut day={day} />
+                    <Statut day={day} quotaEpuise={quotaEpuise} />
                   </span>
                 </>
               );

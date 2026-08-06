@@ -11,6 +11,7 @@ import {
   validateGuess,
 } from '../claude.js';
 import { puzzleNumber, todayUtc } from '../words.js';
+import { trainingQuota, trainingStarted } from '../training.js';
 
 export const archiveRouter = Router();
 
@@ -24,6 +25,10 @@ export const archiveRouter = Router();
  * Rien de ce qui se passe ici n'alimente le classement, les statistiques ni
  * les médailles : un abonnement ne doit jamais acheter une place au
  * classement. C'est du contenu, pas un avantage.
+ *
+ * Ce sont les parties d'ENTRAÎNEMENT du forfait premium, et elles sont
+ * comptées : quatre par jour, en plus de la partie du jour. Voir
+ * training.js — la règle vit là-bas, pas ici.
  */
 
 const FREE_ARCHIVE_DAYS = 3;
@@ -157,7 +162,15 @@ archiveRouter.get('/archive', requireAuth, (req, res) => {
     };
   });
 
-  res.json({ isPremium, freeDays: FREE_ARCHIVE_DAYS, total: days.length, days });
+  res.json({
+    isPremium,
+    freeDays: FREE_ARCHIVE_DAYS,
+    total: days.length,
+    days,
+    // Le client doit pouvoir dire « il te reste 2 parties » AVANT le clic,
+    // plutôt que d'ouvrir une journée qui refusera la première proposition.
+    training: trainingQuota(req.user.id),
+  });
 });
 
 /* -------------------------------------------------------------- *
@@ -189,6 +202,10 @@ archiveRouter.get('/archive/:date', requireAuth, async (req, res) => {
     // Le client doit savoir s'il peut jouer, pour proposer l'abonnement
     // plutot qu'un champ de saisie qui renverrait une erreur.
     canPlay: canPlay(req.user),
+    training: trainingQuota(req.user.id),
+    // Une journée déjà entamée ne consomme plus de crédit : le bandeau de
+    // quota doit le dire, sinon un joueur à zéro croirait sa partie perdue.
+    started: trainingStarted(req.user.id, date),
     guesses: archiveGuesses(req.user.id, date),
     result,
     playedForReal: playedForReal(req.user.id, date),
@@ -251,6 +268,22 @@ archiveRouter.post(
       .prepare('SELECT word_guessed, score, attempt_number FROM archive_guesses WHERE user_id = ? AND date = ?')
       .all(req.user.id, date);
 
+    /*
+     * Quota d'entraînement — vérifié uniquement à la PREMIÈRE proposition
+     * d'une journée. Une partie commencée se termine toujours : couper un
+     * joueur au dixième essai parce que minuit est passé serait une
+     * punition, pas une limite.
+     */
+    if (previous.length === 0) {
+      const quota = trainingQuota(req.user.id);
+      if (quota.remaining <= 0) {
+        return res.status(429).json({
+          error: `Tu as utilisé tes ${quota.max} parties d'entraînement du jour. La partie du jour, elle, reste ouverte — et tout se remet à zéro à minuit.`,
+          quota,
+        });
+      }
+    }
+
     const cap = attemptsFor(req.user);
     if (previous.length >= cap) {
       return res.status(409).json({ error: 'Chances épuisées sur cette journée.' });
@@ -300,6 +333,10 @@ archiveRouter.post(
       source: evaluation.source,
     };
 
+    // Le crédit vient d'être consommé : on renvoie le compte à jour plutôt
+    // que de laisser le client le deviner.
+    if (attempt === 1) payload.training = trainingQuota(req.user.id);
+
     // Fin de partie : trouvé, ou tentatives épuisées.
     if (found || remaining === 0) {
       const seconds = elapsedSeconds(req.user.id, date);
@@ -344,6 +381,21 @@ archiveRouter.post('/archive/:date/surrender', requireAuth, async (req, res) => 
   const attempts = db
     .prepare('SELECT COUNT(*) AS n FROM archive_guesses WHERE user_id = ? AND date = ?')
     .get(req.user.id, date).n;
+
+  /*
+   * Abandonner une journée jamais commencée révèle la réponse sans avoir
+   * proposé quoi que ce soit — et la fiche du joueur, si elle n'est pas
+   * encore en cache, coûte un appel. Ça reste une partie : ça se compte.
+   */
+  if (attempts === 0) {
+    const quota = trainingQuota(req.user.id);
+    if (quota.remaining <= 0) {
+      return res.status(429).json({
+        error: `Tu as utilisé tes ${quota.max} parties d'entraînement du jour. Tout se remet à zéro à minuit.`,
+        quota,
+      });
+    }
+  }
 
   db.prepare(
     `INSERT OR REPLACE INTO archive_results (user_id, date, attempts, seconds, outcome)

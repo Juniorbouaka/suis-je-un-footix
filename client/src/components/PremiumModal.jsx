@@ -2,27 +2,39 @@ import { Link } from 'react-router-dom';
 import Icon from './Icon.jsx';
 
 /**
- * « Tu as fait le tour du forfait gratuit » : la seule fenêtre modale du jeu.
+ * La fenêtre qui propose l'abonnement — la seule fenêtre modale du jeu.
  *
  * L'invitation à soutenir (SupportPrompt) reste volontairement une carte
- * inline — on ne met pas un péage devant une victoire. Ici, c'est l'inverse :
- * le joueur vient de buter sur la limite du forfait gratuit, et la seule
- * chose qui l'intéresse à cet instant est justement de savoir comment en
- * avoir plus. Répondre ailleurs qu'à cet endroit, c'est ne pas répondre.
+ * inline : on ne met pas un péage devant une victoire. Ici, c'est l'inverse.
+ * Elle n'apparaît qu'à la fin d'une partie, au moment précis où le joueur se
+ * demande ce qu'il fait ensuite — et la réponse honnête, en gratuit, est
+ * « tu attends minuit ». Répondre ailleurs qu'à cet endroit, c'est ne pas
+ * répondre.
  *
- * Elle ne s'affiche qu'au moment où la limite tombe : recharger la page ne la
- * fait pas revenir.
+ * Deux règles de politesse tiennent tout l'écran : une seule fois par jour
+ * (la fréquence est gérée par l'appelant), et un refus qui se dit en clair,
+ * pas une croix minuscule dans un coin.
  */
 
 const AVANTAGES = [
+  '5 parties par jour au lieu d’une',
   '50 chances par jour au lieu de 15',
   '5 duels par jour au lieu d’un seul',
   'Aucune publicité',
-  'Toutes les archives, rejouables',
-  'Statistiques détaillées et thèmes de terrain',
+  'Toutes les archives, statistiques détaillées',
 ];
 
-export default function PremiumModal({ open, onClose, titre, texte, avantages = AVANTAGES }) {
+export default function PremiumModal({
+  open,
+  onClose,
+  titre,
+  texte,
+  avantages = AVANTAGES,
+  kicker = null,
+  cta = "Découvrir l'abonnement",
+  dismiss = 'Non merci, je reviens demain',
+  note = null,
+}) {
   if (!open) return null;
 
   return (
@@ -31,6 +43,8 @@ export default function PremiumModal({ open, onClose, titre, texte, avantages = 
         <span className="premium-modal-icon">
           <Icon name="crown" size={26} />
         </span>
+
+        {kicker && <div className="premium-modal-kicker">{kicker}</div>}
 
         <h2 style={{ fontSize: 22, margin: '14px 0 6px' }}>{titre}</h2>
         <p className="muted small" style={{ margin: '0 0 18px' }}>
@@ -46,11 +60,17 @@ export default function PremiumModal({ open, onClose, titre, texte, avantages = 
         </ul>
 
         <Link to="/premium" className="btn btn-block btn-lg" onClick={onClose}>
-          Découvrir l'abonnement
+          {cta}
         </Link>
         <button className="btn btn-ghost btn-block" style={{ marginTop: 10 }} onClick={onClose}>
-          Non merci, je reviens demain
+          {dismiss}
         </button>
+
+        {note && (
+          <p className="small faint" style={{ margin: '12px 0 0' }}>
+            {note}
+          </p>
+        )}
       </div>
     </div>
   );

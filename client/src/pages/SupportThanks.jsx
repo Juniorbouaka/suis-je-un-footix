@@ -6,11 +6,16 @@ import Icon from '../components/Icon.jsx';
 import { marquerDonateur } from '../components/SupportPrompt.jsx';
 
 /**
- * Retour de PayPal après un don.
+ * Retour de l'encaisseur après un don.
  *
- * PayPal renvoie l'identifiant de commande dans « token ». L'encaissement se
- * fait côté serveur, qui vérifie d'abord que la commande vient bien de chez
- * nous : on n'encaisse jamais une référence fournie par le navigateur.
+ * Deux chemins arrivent ici, et on les reconnaît au paramètre d'URL :
+ *
+ *   — PayPal renvoie l'identifiant de commande dans « token » ;
+ *   — Stripe (carte, Apple Pay, Google Pay) renvoie « session_id ».
+ *
+ * Dans les deux cas la vérification se fait côté serveur, qui contrôle
+ * d'abord que la référence vient bien de chez nous : on n'entérine jamais
+ * un identifiant fourni par le navigateur.
  */
 export default function SupportThanks() {
   const [params] = useSearchParams();
@@ -19,7 +24,8 @@ export default function SupportThanks() {
   const [error, setError] = useState('');
   const fait = useRef(false);
 
-  const orderId = params.get('token') || params.get('orderId');
+  const sessionId = params.get('session_id');
+  const orderId = sessionId || params.get('token') || params.get('orderId');
 
   useEffect(() => {
     // React 18 monte deux fois en développement : sans ce garde, on
@@ -29,13 +35,15 @@ export default function SupportThanks() {
 
     if (!orderId) {
       setState('error');
-      setError("PayPal n'a pas transmis de référence de paiement.");
+      setError("Aucune référence de paiement n'a été transmise.");
       return;
     }
 
     (async () => {
       try {
-        const { data } = await api.post('/donate/capture', { orderId });
+        const { data } = sessionId
+          ? await api.post('/stripe/donate/confirm', { sessionId })
+          : await api.post('/donate/capture', { orderId });
         setMontant(data.amount);
         // Il a donne : on ne le sollicitera plus jamais.
         if (data.status === 'COMPLETED') marquerDonateur();
@@ -46,7 +54,7 @@ export default function SupportThanks() {
         setError(errorMessage(err));
       }
     })();
-  }, [orderId]);
+  }, [orderId, sessionId]);
 
   if (state === 'pending') {
     return (
@@ -64,8 +72,7 @@ export default function SupportThanks() {
         <h1 style={{ fontSize: 21, margin: '12px 0 8px' }}>Paiement non abouti</h1>
         <p className="muted small">{error}</p>
         <p className="muted small" style={{ marginTop: 10 }}>
-          Si une somme a été débitée, elle sera automatiquement restituée par PayPal sous quelques
-          jours.
+          Si une somme a été débitée, elle sera automatiquement restituée sous quelques jours.
         </p>
         <div className="row" style={{ gap: 10, marginTop: 18, justifyContent: 'center' }}>
           <Link to="/soutenir" className="btn btn-ghost">Réessayer</Link>

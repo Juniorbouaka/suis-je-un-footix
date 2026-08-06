@@ -81,6 +81,25 @@ export const config = {
      */
     duelsPerDayFree: Number(process.env.MAX_DUELS_FREE || 1),
     duelsPerDayPremium: Number(process.env.MAX_DUELS_PREMIUM || 5),
+
+    /*
+     * Parties solo par jour, pour un abonné.
+     *
+     * Cinq, et pas une de plus : la partie du jour, plus quatre journées
+     * d'archive rejouées. La première compte au classement, les quatre
+     * autres non — ce sont des parties d'entraînement.
+     *
+     * Cette frontière n'est pas décorative, c'est la promesse du jeu : un
+     * abonnement achète du temps de jeu, jamais des points. Le classement
+     * doit rester comparable entre celui qui paie et celui qui ne paie pas,
+     * sinon il ne classe plus rien.
+     *
+     * Le plafond est aussi un garde-fou de dépense : chaque proposition
+     * part vers l'API Claude et se facture. Le rejeu était jusqu'ici sans
+     * limite pour un abonné — soit, en théorie, autant de parties que de
+     * journées archivées dans la même soirée.
+     */
+    gamesPerDayPremium: Number(process.env.MAX_GAMES_PREMIUM || 5),
   },
 
   // URL publique du site, utilisée dans les e-mails (lien de réinitialisation).
@@ -213,4 +232,20 @@ export const isProd = process.env.NODE_ENV === 'production';
 export function attemptsFor(user) {
   const premium = Boolean(user?.is_premium ?? user?.isPremium);
   return premium ? config.game.maxAttemptsPremium : config.game.maxAttemptsFree;
+}
+
+/**
+ * Nombre de parties d'ENTRAÎNEMENT auxquelles un joueur a droit par jour.
+ *
+ * L'entraînement, ce sont les journées d'archive rejouées : elles ne
+ * rapportent ni point, ni médaille, ni place au classement. La partie du
+ * jour, elle, est toujours offerte et n'est jamais comptée ici — d'où le
+ * « − 1 » : cinq parties par jour dont une classée, donc quatre libres.
+ *
+ * Zéro pour un compte gratuit : la partie du jour reste son rendez-vous.
+ */
+export function trainingPerDay(user) {
+  const premium = Boolean(user?.is_premium ?? user?.isPremium);
+  if (!premium) return 0;
+  return Math.max(0, config.game.gamesPerDayPremium - 1);
 }

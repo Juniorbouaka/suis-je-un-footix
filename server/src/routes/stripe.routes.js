@@ -184,6 +184,57 @@ stripeRouter.post('/donate', limiter, async (req, res) => {
 });
 
 /* -------------------------------------------------------------- *
+ *  POST /api/stripe/donate/confirm — au retour de Stripe
+ *
+ *  Même rôle que /api/donate/capture côté PayPal : le webhook fait foi
+ *  mais peut avoir quelques secondes de retard, et le donateur, lui, est
+ *  déjà revenu sur la page de remerciement. On interroge Stripe
+ *  nous-mêmes — jamais le client, qui pourrait inventer n'importe quoi.
+ * -------------------------------------------------------------- */
+
+stripeRouter.post('/donate/confirm', limiter, async (req, res) => {
+  const sessionId = String(req.body?.sessionId || '').trim();
+  if (!sessionId) return res.status(400).json({ error: 'Session manquante.' });
+
+  // La session doit venir de chez nous : on refuse d'entériner une
+  // référence arbitraire fournie par le navigateur.
+  const connu = db.prepare('SELECT * FROM donations WHERE order_id = ?').get(sessionId);
+  if (!connu) return res.status(404).json({ error: 'Paiement inconnu.' });
+
+  // Rechargement de la page de retour, ou webhook déjà passé : on ne
+  // rejoue rien.
+  if (connu.status === 'COMPLETED') {
+    return res.json({
+      status: 'COMPLETED',
+      amount: connu.amount,
+      currency: connu.currency,
+      orderId: sessionId,
+    });
+  }
+
+  try {
+    const session = await getCheckoutSession(sessionId);
+    if (session.payment_status !== 'paid') {
+      return res.status(409).json({ error: "Le paiement n'est pas finalisé." });
+    }
+
+    db.prepare(
+      "UPDATE donations SET status = 'COMPLETED', captured_at = datetime('now') WHERE order_id = ?"
+    ).run(sessionId);
+
+    res.json({
+      status: 'COMPLETED',
+      amount: connu.amount,
+      currency: connu.currency,
+      orderId: sessionId,
+    });
+  } catch (err) {
+    console.error('[stripe] confirmation de don :', err.message);
+    res.status(502).json({ error: 'Impossible de vérifier le paiement auprès de Stripe.' });
+  }
+});
+
+/* -------------------------------------------------------------- *
  *  Webhook Stripe
  *
  *  Monté à part dans index.js, AVANT express.json() : la signature se

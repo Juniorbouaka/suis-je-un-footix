@@ -92,13 +92,20 @@ git status --short | grep -E "\.env$|footix\.db"   # ne doit rien afficher
    | `MAX_ATTEMPTS_PVP` | `15` |
    | `MAX_DUELS_FREE` | `1` |
    | `MAX_DUELS_PREMIUM` | `5` |
+   | `MAX_GAMES_PREMIUM` | `5` |
 
    Ne touche pas à `PORT` : Railway l'injecte.
 
-   ⚠️ Ces trois dernières ont changé de valeur (duel : `20` → `15` essais, `2` → `1` duel gratuit,
+   ⚠️ Trois d'entre elles ont changé de valeur (duel : `20` → `15` essais, `2` → `1` duel gratuit,
    `20` → `5` duels pour un abonné). Une variable déjà posée sur Railway **écrase** la valeur du
    code : si elle traîne avec l'ancien chiffre, corrige-la ou supprime-la — le code retombera sur
    la bonne valeur par défaut. Idem pour l'ancienne `MAX_ATTEMPTS`, qui n'a plus cours.
+
+   `MAX_GAMES_PREMIUM` est le total de parties solo quotidiennes d'un abonné : la partie du jour,
+   qui compte au classement, plus les parties d'entraînement (des journées d'archive rejouées,
+   qui ne rapportent rien). `5` donne donc **1 classée + 4 d'entraînement**. C'est aussi un
+   garde-fou de dépense : avant, un abonné pouvait rejouer autant de journées qu'il en existait,
+   dans la même soirée. La valeur affichée sur la page d'offre suit automatiquement.
 
 4. **Générer le domaine** — onglet *Settings* → *Networking* → *Generate Domain*.
    Tu obtiens une URL en `.up.railway.app`.
@@ -177,9 +184,43 @@ volontaire dans `railway.toml`.
 |---|---|
 | **CMP de consentement** | Diffuser de la pub personnalisée en Europe exige une CMP certifiée IAB TCF v2.2 (Google, Axeptio, Didomi, Sirdata). Mon bandeau est une structure d'accueil, pas un outil conforme. |
 | **Mentions légales et politique de confidentialité** | Obligatoires dès la collecte d'e-mails. Contenu juridique propre à ton statut. |
-| **Paiement du premium** | La colonne `is_premium` existe et masque la pub. Brancher Stripe touche à la facturation : à faire toi-même. |
+| **Clés Stripe** | Le code est branché (abonnement, dons, webhook), mais tant que `STRIPE_SECRET_KEY` est vide il reste muet : ni carte, ni Apple Pay, ni Google Pay. Voir ci-dessous. |
 | **Nom de domaine** | Optionnel. Railway et Fly.io fournissent une URL utilisable telle quelle. |
 | **Vérification d'e-mail à l'inscription** | Les adresses ne sont pas validées : quelqu'un peut s'inscrire avec une adresse inventée. Petit ajout une fois Resend en place. |
+
+---
+
+## Paiement rapide : Apple Pay et Google Pay
+
+Ils passent par **Stripe Checkout**, pour l'abonnement comme pour les dons. Rien à héberger ni à
+déclarer : la page de paiement est celle de Stripe, donc le domaine Apple Pay est le sien. Les
+portefeuilles s'affichent en boutons express, tout en haut, dès que le téléphone les propose —
+deux secondes et une empreinte digitale, là où saisir seize chiffres au pouce est l'endroit exact
+où l'on renonce.
+
+```bash
+cd server
+# 1. Poser STRIPE_SECRET_KEY (sk_test_… pour essayer, sk_live_… pour encaisser)
+#    PUBLIC_URL doit deja pointer sur le domaine HTTPS : le script y declare le webhook.
+railway run npm run stripe:setup   # produit, deux prix, webhook — affiche tout
+# 2. Recopier STRIPE_PRICE_MONTHLY, STRIPE_PRICE_YEARLY et STRIPE_WEBHOOK_SECRET
+```
+
+Le secret du webhook n'est visible **qu'à sa création**. S'il est perdu, supprime le point de
+terminaison dans le tableau de bord Stripe et relance le script.
+
+| Variable | Rôle |
+|---|---|
+| `STRIPE_SECRET_KEY` | vide = aucun paiement par carte ni portefeuille ; PayPal reprend la place du bouton principal |
+| `STRIPE_PRICE_MONTHLY` · `STRIPE_PRICE_YEARLY` | abonnement ; les dons n'en ont pas besoin |
+| `STRIPE_WEBHOOK_SECRET` | sans lui, **tous** les webhooks sont refusés — un webhook non vérifié laisserait n'importe qui s'offrir le premium |
+
+Il n'y a pas deux environnements séparés comme chez PayPal : c'est la clé qui décide.
+`sk_test_…` ne touche à rien de réel, `sk_live_…` encaisse. Les identifiants de prix créés avec
+une clé de test n'existent pas en production, donc le script est à rejouer au passage en live.
+
+Vérifier que les portefeuilles sont bien actifs : *Settings → Payments → Payment methods* dans le
+tableau de bord Stripe. Apple Pay et Google Pay y sont activés par défaut.
 
 ---
 

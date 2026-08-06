@@ -2567,6 +2567,283 @@ a:hover {
   }
 }
 
+/* ================= appel au soutien, page d'accueil =================
+   L'ancien bloc etait invisible : gris sur gris, en bas de page, avec un
+   bouton de la taille de tous les autres. Celui-ci a sa couleur, son cadre
+   et ses montants cliquables — un clic sur « 5 € » ouvre le paiement, sans
+   page intermediaire. Sur telephone, chaque ecran traverse fait perdre la
+   moitie des gens.                                                      */
+
+.support-cta {
+  position: relative;
+  margin-top: 26px;
+  padding: 26px;
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(150deg,
+      color-mix(in srgb, var(--red) 10%, transparent),
+      color-mix(in srgb, var(--violet) 7%, transparent) 60%,
+      transparent);
+  border: 1.5px solid color-mix(in srgb, var(--red) 32%, transparent);
+  box-shadow: 0 22px 44px -30px color-mix(in srgb, var(--red) 80%, transparent), var(--shadow);
+  backdrop-filter: blur(12px);
+  animation: rise-in 0.55s var(--ease) both;
+}
+
+.support-cta-head {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.support-cta-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  flex: none;
+  border-radius: 999px;
+  color: #fff;
+  background: linear-gradient(140deg, var(--red), #dc2626);
+  box-shadow: 0 12px 26px -12px var(--red);
+}
+
+.support-cta-title {
+  font-size: 21px;
+  margin: 0 0 6px;
+}
+
+.support-cta-text {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* Les montants : assez gros pour un pouce, jamais un menu deroulant. */
+.support-cta-montants {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.support-cta-montant {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 12px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-solid);
+  border: 1.5px solid color-mix(in srgb, var(--red) 22%, transparent);
+  color: inherit;
+  font-size: 18px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.16s var(--ease), border-color 0.2s var(--ease),
+    background 0.2s var(--ease);
+}
+
+.support-cta-montant:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 8%, var(--surface-solid));
+}
+
+.support-cta-montant:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.support-cta-autre {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+
+.support-cta-moyens {
+  margin: 9px 0 0;
+}
+
+.support-cta-pied {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.support-cta-pied .btn {
+  flex: 1 1 200px;
+}
+
+/* Le bouton principal reprend le rouge du bloc : c'est le meme geste. */
+.support-cta-btn {
+  background: linear-gradient(140deg, var(--red), #dc2626);
+  box-shadow: 0 14px 30px -14px var(--red);
+}
+
+@media (max-width: 640px) {
+  .support-cta {
+    padding: 20px;
+  }
+
+  .support-cta-head {
+    gap: 12px;
+  }
+
+  .support-cta-icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .support-cta-title {
+    font-size: 19px;
+  }
+
+  /* Quatre colonnes deviennent illisibles sous 380 px. */
+  .support-cta-montants {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Côte à côte, les deux boutons cassent leur libellé sur deux lignes. */
+  .support-cta-pied .btn {
+    flex: 1 1 100%;
+  }
+}
+
+/* Lien « Soutenir » de l'en-tete : present en permanence, jamais criard. */
+.nav-support {
+  color: var(--red);
+}
+
+.nav-support:hover {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+}
+
+/* ------------------- paiement rapide (portefeuilles) -----------------
+   Apple Pay et Google Pay s'affichent sur la page de Stripe, pas ici : ce
+   bouton n'est qu'une porte. Il en prend neanmoins le contraste, parce que
+   c'est le chemin qu'on veut voir emprunte sur telephone.               */
+
+.btn-wallet {
+  letter-spacing: 0.01em;
+}
+
+.btn-wallet.wallet-apple,
+.btn-wallet.wallet-google {
+  background: linear-gradient(140deg, #111827, #030712);
+  border-color: #030712;
+  color: #fff;
+  box-shadow: 0 14px 30px -16px rgba(0, 0, 0, 0.9);
+}
+
+.btn-wallet.wallet-apple:hover:not(:disabled),
+.btn-wallet.wallet-google:hover:not(:disabled) {
+  filter: brightness(1.25);
+}
+
+:root[data-theme='dark'] .btn-wallet.wallet-apple,
+:root[data-theme='dark'] .btn-wallet.wallet-google {
+  background: linear-gradient(140deg, #f8fafc, #cbd5e1);
+  border-color: #e2e8f0;
+  color: #0b1220;
+}
+
+/* ---------------- fin de partie : « envie de rejouer ? » -------------
+   L'encart des abonnes. Il repond a la seule question du moment : est-ce
+   que je peux en refaire une ? Un compteur a zero est plus honnete qu'un
+   bouton qui menerait a un refus.                                       */
+
+.replay-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 26%, transparent);
+}
+
+.replay-panel.vide {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.replay-panel-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 999px;
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+}
+
+.replay-panel.vide .replay-panel-icon {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.replay-panel-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+@media (max-width: 520px) {
+  .replay-panel {
+    flex-wrap: wrap;
+  }
+
+  .replay-panel .btn {
+    width: 100%;
+  }
+}
+
+/* Surtitre de la fenetre modale : situe le moment avant d'annoncer le
+   titre. « Fin de partie » puis « Envie de rejouer ? ».                 */
+.premium-modal-kicker {
+  margin-top: 12px;
+  font-size: 11.5px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* ------------------------- page de test ---------------------------- */
+
+.test-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--amber) 45%, transparent);
+  color: var(--text-muted);
+}
+
+.test-banner-tag {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--amber);
+  color: #1f1300;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 /* ------------------------ tableau de bord admin ------------------------ */
 
 .admin-title {

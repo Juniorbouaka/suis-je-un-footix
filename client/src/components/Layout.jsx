@@ -69,12 +69,25 @@ export default function Layout({ children }) {
             )}
 
             {!isPremium && (
-              <NavLink
-                to="/premium"
-                className={({ isActive }) => `nav-link nav-premium${isActive ? ' active' : ''}`}
-              >
-                <Icon name="crown" size={14} /> Premium
-              </NavLink>
+              <>
+                {/* Le soutien avait sa place dans le pied de page, là où
+                    personne ne descend. Un lien d'en-tête, discret mais
+                    permanent, vaut mieux qu'une bannière. */}
+                <NavLink
+                  to="/soutenir"
+                  className={({ isActive }) =>
+                    `nav-link nav-support hide-sm${isActive ? ' active' : ''}`
+                  }
+                >
+                  <Icon name="heart" size={14} /> Soutenir
+                </NavLink>
+                <NavLink
+                  to="/premium"
+                  className={({ isActive }) => `nav-link nav-premium${isActive ? ' active' : ''}`}
+                >
+                  <Icon name="crown" size={14} /> Premium
+                </NavLink>
+              </>
             )}
 
             <button

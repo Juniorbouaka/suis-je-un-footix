@@ -123,9 +123,25 @@ export function cancelSubscriptionAtPeriodEnd(subscriptionId) {
  *  Dons — paiement ponctuel
  * ------------------------------------------------------------------ */
 
+/**
+ * Ouvre une session de don.
+ *
+ * Aucun `payment_method_types` n'est imposé : laissé vide, Stripe applique
+ * les moyens de paiement activés dans le tableau de bord et affiche Apple
+ * Pay et Google Pay en boutons express, tout en haut de la page, dès que le
+ * navigateur les propose. C'est le chemin le plus court sur téléphone —
+ * deux secondes et une empreinte digitale, sans saisir seize chiffres.
+ *
+ * Rien à héberger ni à déclarer de notre côté : le domaine Apple Pay est
+ * celui de Stripe, puisque la page de paiement est la sienne.
+ *
+ * `submit_type: 'donate'` change le libellé du bouton final en « Faire un
+ * don » plutôt qu'« Payer » : c'est un don, pas un achat.
+ */
 export async function createDonationSession({ amountCents, successUrl, cancelUrl }) {
   const session = await stripeRequest('POST', '/checkout/sessions', {
     mode: 'payment',
+    submit_type: 'donate',
     line_items: [
       {
         quantity: 1,

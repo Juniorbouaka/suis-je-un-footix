@@ -144,6 +144,16 @@ export default function ArchiveGame() {
   // Le serveur refuserait la proposition : autant proposer l'abonnement
   // plutot qu'un champ de saisie qui renverrait une erreur.
   const bloque = data?.canPlay === false && !finished;
+  /*
+   * Même raisonnement pour le quota : un abonné qui a joué ses quatre
+   * parties du jour verra sa première proposition refusée. Le champ reste
+   * affiché — la journée n'est pas perdue, elle rouvre à minuit — mais
+   * inerte, plutôt que de laisser taper un mot pour rien.
+   */
+  const sansCredit = Boolean(
+    data?.canPlay && !data?.started && !finished && data?.training?.remaining === 0
+  );
+  const fige = busy || data?.playedForReal || sansCredit;
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -155,10 +165,34 @@ export default function ArchiveGame() {
           <h1 style={{ fontSize: 26, marginTop: 4 }}>Journée n°{data?.number}</h1>
           <p className="muted small">{formatDate(date)}</p>
         </div>
-        <span className="pill" title="Le rejeu ne rapporte aucun point">
-          <Icon name="repeat" size={14} /> Rejeu — hors classement
-        </span>
+        <div className="row wrap" style={{ gap: 8 }}>
+          {/* Une partie déjà entamée ne consomme plus rien : le compteur ne
+              doit pas laisser croire qu'elle va coûter un second crédit. */}
+          {data?.canPlay && data?.training?.max > 0 && !data?.started && (
+            <span className={`pill${data.training.remaining > 0 ? ' pill-green' : ''}`}>
+              <Icon name="repeat" size={13} /> {data.training.remaining}/{data.training.max}{' '}
+              entraînement
+            </span>
+          )}
+          <span className="pill" title="Le rejeu ne rapporte aucun point">
+            <Icon name="repeat" size={14} /> Rejeu — hors classement
+          </span>
+        </div>
       </div>
+
+      {sansCredit && (
+        <div className="alert alert-info" style={{ marginBottom: 16 }}>
+          <div className="row row-between wrap" style={{ gap: 10 }}>
+            <span>
+              Tes {data.training.max} parties d'entraînement du jour sont utilisées. Cette journée
+              t'attendra : tout se remet à zéro à minuit.
+            </span>
+            <Link to="/solo" className="btn btn-sm">
+              La partie du jour
+            </Link>
+          </div>
+        </div>
+      )}
 
       {bloque && (
         <div className="card center" style={{ marginBottom: 16 }}>
@@ -245,9 +279,9 @@ export default function ArchiveGame() {
                 autoCapitalize="off"
                 spellCheck="false"
                 aria-label="Ton joueur"
-                disabled={busy || data?.playedForReal}
+                disabled={fige}
               />
-              <button className="btn btn-lg" disabled={busy || !word.trim() || data?.playedForReal}>
+              <button className="btn btn-lg" disabled={fige || !word.trim()}>
                 {busy ? '…' : 'Valider'}
               </button>
             </form>
@@ -260,7 +294,7 @@ export default function ArchiveGame() {
                 <strong className="mono">{Math.max(0, maxAttempts - guesses.length)}</strong>{' '}
                 chance(s) restante(s) · meilleur score <strong className="mono">{bestScore}</strong>
               </span>
-              <button className="btn-icon btn-text" onClick={surrender}>
+              <button className="btn-icon btn-text" onClick={surrender} disabled={sansCredit}>
                 Renoncer
               </button>
             </div>

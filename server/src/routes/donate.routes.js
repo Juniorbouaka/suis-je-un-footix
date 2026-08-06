@@ -10,6 +10,7 @@ import {
   getOrder,
   paypalEnabled,
 } from '../paypal.js';
+import { stripeEnabled } from '../stripe.js';
 
 export const donateRouter = Router();
 
@@ -55,7 +56,14 @@ function donateurEventuel(req) {
 
 donateRouter.get('/options', (req, res) => {
   res.json({
-    enabled: paypalEnabled,
+    // Vrai dès qu'UN encaisseur sait prendre l'argent : le client n'a pas
+    // à connaître le détail pour décider s'il affiche la page.
+    enabled: paypalEnabled || stripeEnabled,
+    providers: {
+      paypal: paypalEnabled,
+      // Stripe porte le paiement rapide : Apple Pay, Google Pay et carte.
+      stripe: stripeEnabled,
+    },
     currency: 'EUR',
     amounts: config.donations.amounts,
     min: config.donations.min,

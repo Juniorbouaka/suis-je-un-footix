@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { api, errorMessage } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import Icon from '../components/Icon.jsx';
+import { detailPaiement, libellePaiement, portefeuille } from '../lib/paiement.js';
 
 /**
  * L'offre premium.
@@ -22,6 +23,12 @@ import Icon from '../components/Icon.jsx';
  */
 
 const AVANTAGES = [
+  {
+    icon: 'repeat',
+    titre: '5 parties par jour',
+    texte:
+      'Au lieu d’une. La partie du jour compte au classement, les quatre autres sont des parties d’entraînement : aucun point, aucune médaille, juste du jeu.',
+  },
   {
     icon: 'target',
     titre: '50 chances par jour',
@@ -45,7 +52,8 @@ const AVANTAGES = [
   {
     icon: 'play',
     titre: 'Rejouer les journées passées',
-    texte: 'Chaque journée que tu as manquée redevient une partie complète.',
+    texte:
+      'Chaque journée manquée redevient une partie complète — ce sont tes parties d’entraînement.',
   },
   {
     icon: 'chart',
@@ -69,6 +77,10 @@ export default function Premium() {
   const [params] = useSearchParams();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  // Le libellé du bouton suit le téléphone : « Payer avec Apple Pay » vaut
+  // mieux que « Payer par carte » quand on n'aura justement pas de carte à
+  // sortir. La page de paiement Stripe affiche le portefeuille en premier.
+  const kind = portefeuille();
 
   const { data: offer, isLoading } = useQuery({
     queryKey: ['billing-offer'],
@@ -110,8 +122,8 @@ export default function Premium() {
         <h1 style={{ fontSize: 30, margin: '14px 0 8px' }}>Soutiens le jeu, débloque tout</h1>
         <p className="muted" style={{ maxWidth: 520, margin: '0 auto' }}>
           Chaque proposition est évaluée par une IA, et ça se paye. L'abonnement fait vivre le jeu —
-          et fait passer ta journée de 15 à 50 chances et d'un à 5 duels, sans publicité, archives
-          comprises.
+          et fait passer ta journée d'une à 5 parties, de 15 à 50 chances et d'un à 5 duels, sans
+          publicité, archives comprises.
         </p>
       </div>
 
@@ -148,7 +160,8 @@ export default function Premium() {
         <Icon name="check" size={14} /> Le score, lui, ne s'achète pas : il baisse de 50 points à
         chaque chance utilisée, pour tout le monde. Un abonné qui trouve au 40<sup>e</sup> essai
         marque moins qu'un joueur gratuit qui trouve au 3<sup>e</sup>. Aucun indice, aucun point
-        offert.
+        offert — et les quatre parties d'entraînement quotidiennes ne rapportent rien du tout au
+        classement, par construction.
       </div>
 
       {!offer?.enabled ? (
@@ -174,18 +187,25 @@ export default function Premium() {
 
               <div className="stack-sm" style={{ marginTop: 16 }}>
                 {plan.stripe && (
-                  <button
-                    className={`btn btn-lg${plan.key === 'yearly' ? '' : ' btn-ghost'}`}
-                    style={{ width: '100%' }}
-                    disabled={isPremium || Boolean(busy)}
-                    onClick={() => souscrire(plan.key, 'stripe')}
-                  >
-                    {busy === `${plan.key}:stripe`
-                      ? 'Redirection…'
-                      : isPremium
-                        ? 'Déjà abonné'
-                        : 'Payer par carte'}
-                  </button>
+                  <>
+                    <button
+                      className={`btn btn-lg btn-wallet wallet-${kind || 'card'}${plan.key === 'yearly' ? '' : ' btn-ghost'}`}
+                      style={{ width: '100%' }}
+                      disabled={isPremium || Boolean(busy)}
+                      onClick={() => souscrire(plan.key, 'stripe')}
+                    >
+                      {busy === `${plan.key}:stripe`
+                        ? 'Redirection…'
+                        : isPremium
+                          ? 'Déjà abonné'
+                          : libellePaiement(kind)}
+                    </button>
+                    {!isPremium && (
+                      <p className="small faint center" style={{ margin: 0 }}>
+                        {detailPaiement(kind).replace(' — sans créer de compte', '')}
+                      </p>
+                    )}
+                  </>
                 )}
 
                 {plan.paypal && (
@@ -221,8 +241,8 @@ export default function Premium() {
       )}
 
       <p className="small muted center" style={{ marginTop: 20 }}>
-        Paiement par PayPal. Résiliable à tout moment depuis ton profil — tes avantages courent
-        jusqu'à la fin de la période déjà payée.
+        Carte bancaire, Apple Pay, Google Pay ou PayPal. Résiliable à tout moment depuis ton profil
+        — tes avantages courent jusqu'à la fin de la période déjà payée.
       </p>
 
       {offer?.donateUrl && (

@@ -219,6 +219,20 @@ est révélé avec sa fiche, score nul, et une fenêtre propose l'abonnement.
 Un joueur qui s'abonne après avoir épuisé ses quinze chances retrouve sa partie du jour ouverte
 (`reopenIfUpgraded`) : on ne vend pas cinquante chances pour en livrer zéro.
 
+**5 parties par jour pour les abonnés** (`MAX_GAMES_PREMIUM`), contre une seule en gratuit. La
+première est la partie du jour et **compte au classement** ; les quatre autres sont des **parties
+d'entraînement** — des journées d'archive rejouées, qui ne rapportent ni point, ni médaille, ni
+place au classement. C'est ce qui permet d'en vendre cinq sans abîmer le classement :
+l'abonnement achète du temps de jeu, jamais des points.
+
+Le compte se tient dans `training.js`, sans table supplémentaire : une journée consomme un crédit
+si sa **première** proposition a été envoyée aujourd'hui (UTC). Trois conséquences voulues —
+une partie commencée hier et terminée ce matin ne coûte rien aujourd'hui, ouvrir une journée sans
+rien proposer ne coûte rien non plus (regarder n'appelle pas l'IA), et l'abandon sec d'une journée
+jamais entamée est compté comme une partie, sans quoi il suffirait d'abandonner pour lire tout le
+catalogue. Le refus est prononcé à la première proposition, jamais en cours de partie : couper
+quelqu'un au dixième essai serait une punition, pas une limite.
+
 **Duel** — les deux cherchent le même joueur mystère, les tours alternent, le premier qui donne le
 nom exact gagne. **15 essais chacun** (`MAX_ATTEMPTS_PVP`) — le même nombre pour l'abonné et le
 gratuit : l'argent achète des duels, jamais un avantage à l'intérieur d'un duel. Quand les deux
@@ -256,13 +270,14 @@ recettes le financent — l'abonnement et la publicité — et une troisième, l
 
 | | |
 |---|---|
-| Encaisseur | PayPal Subscriptions |
+| Encaisseurs | Stripe Checkout (carte, **Apple Pay**, **Google Pay**) · PayPal Subscriptions |
 | Tarifs | 2,99 €/mois · 19,99 €/an |
-| Ce que ça débloque | **50 chances par jour au lieu de 15** · sans publicité · archives complètes · **rejeu des journées passées** · statistiques détaillées · quatre décors de terrain · badge au classement |
+| Ce que ça débloque | **5 parties par jour au lieu d'une** (dont 4 d'entraînement, hors classement) · **50 chances par jour au lieu de 15** · 5 duels au lieu d'un · sans publicité · archives complètes · statistiques détaillées · quatre décors de terrain · badge au classement |
 
-**Le nombre de chances est le cœur de l'offre.** Chaque proposition est un appel facturé à
+**Le volume de jeu quotidien est le cœur de l'offre.** Chaque proposition est un appel facturé à
 Claude : une partie ouverte à cinquante essais pour tout le monde coûte plus cher qu'elle ne
-rapporte. Quinze chances suffisent à jouer sa journée, cinquante sont le confort qu'on achète.
+rapporte. Quinze chances et une partie suffisent à jouer sa journée ; cinquante chances et cinq
+parties sont le confort qu'on achète.
 
 **Ce que l'abonnement ne donne toujours pas :** d'indice, de point offert, ni d'accès à un
 meilleur évaluateur. Le score baisse de 50 points à chaque chance utilisée, pour tout le monde :
@@ -326,7 +341,27 @@ Le composant `client/src/components/Ads.jsx` est prêt mais dormant : il ne s'ac
 
 ### Les dons
 
-`DONATE_URL` ajoute un lien dans le pied de page (ex. `https://paypal.me/tonpseudo`). Ne jamais
+Page `/soutenir`, sans compte : un visiteur de passage doit pouvoir donner sans s'inscrire. Les
+montants proposés (`DONATION_AMOUNTS`) et les bornes (`DONATION_MIN` / `DONATION_MAX`) sont
+vérifiés **côté serveur** — le client propose, le serveur dispose.
+
+**Paiement rapide.** Le bouton principal ouvre Stripe Checkout, qui affiche **Apple Pay** ou
+**Google Pay** en tête de page dès que le téléphone les propose : deux secondes et une empreinte,
+sans saisir seize chiffres. C'est l'endroit exact où l'on renonce sur mobile, et c'est la raison
+pour laquelle ce bouton passe avant PayPal. Rien à héberger ni à déclarer de notre côté — la page
+de paiement est celle de Stripe, donc le domaine Apple Pay aussi. Il suffit que les portefeuilles
+soient activés dans le tableau de bord Stripe (ils le sont par défaut) ; sans
+`STRIPE_SECRET_KEY`, le bouton disparaît et PayPal reprend la place principale.
+
+La page d'accueil propose en plus trois montants **cliquables** (2 / 5 / 10 €) qui ouvrent
+directement le paiement, sans page intermédiaire : chaque écran traversé fait perdre la moitié
+des gens.
+
+Le retour est vérifié côté serveur dans les deux cas — `POST /api/donate/capture` pour PayPal,
+`POST /api/stripe/donate/confirm` pour Stripe — et l'on n'entérine jamais une référence de
+commande fournie par le navigateur.
+
+`DONATE_URL` ajoute un lien vers une page tierce (ex. `https://paypal.me/tonpseudo`). Ne jamais
 y mettre une adresse e-mail : une adresse en clair sur une page publique est aspirée par les
 robots en quelques jours.
 

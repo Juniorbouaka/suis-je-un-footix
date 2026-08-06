@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api, errorMessage } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
@@ -7,16 +6,8 @@ import Gauge from '../components/Gauge.jsx';
 import GuessList from '../components/GuessList.jsx';
 import Confetti from '../components/Confetti.jsx';
 import Icon from '../components/Icon.jsx';
-import ShareResult from '../components/ShareResult.jsx';
-import AdSlot from '../components/Ads.jsx';
-import SupportPrompt from '../components/SupportPrompt.jsx';
-import PremiumModal from '../components/PremiumModal.jsx';
-
-function formatDuration(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return m ? `${m} min ${String(s).padStart(2, '0')} s` : `${s} s`;
-}
+import ResultCard from '../components/ResultCard.jsx';
+import ReplayModal from '../components/ReplayModal.jsx';
 
 function Countdown() {
   const [left, setLeft] = useState('');
@@ -52,8 +43,9 @@ export default function Solo() {
   const [surrendered, setSurrendered] = useState(false);
   const [sort, setSort] = useState('best');
   const [description, setDescription] = useState(null);
-  // Renseigné par le serveur au moment exact où les chances tombent à zéro.
-  const [upsell, setUpsell] = useState(null);
+  // Quota de parties d'entraînement, renvoyé par le serveur à chaque fin de
+  // partie : c'est lui qui décide quoi proposer une fois le mot trouvé.
+  const [training, setTraining] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['daily-word'],
@@ -63,6 +55,7 @@ export default function Solo() {
   useEffect(() => {
     if (!data) return;
     setGuesses(data.guesses || []);
+    setTraining(data.training || null);
     if (data.result) {
       setResult(data.result);
       setSurrendered(Boolean(data.result.surrendered));
@@ -104,7 +97,7 @@ export default function Solo() {
         setResult(res.result);
         setDescription(res.description || null);
         setUnlocked(res.unlocked || []);
-        if (res.upsell) setUpsell(res.upsell);
+        if (res.training) setTraining(res.training);
         refreshProfile();
       }
     } catch (err) {
@@ -120,6 +113,7 @@ export default function Solo() {
       const { data: res } = await api.post('/surrender');
       setSurrendered(true);
       setDescription(res.description || null);
+      if (res.training) setTraining(res.training);
       setResult({ ...res, score: 0, seconds: 0, attempts: res.attempts });
     } catch (err) {
       setError(errorMessage(err));
@@ -131,19 +125,25 @@ export default function Solo() {
   const puzzle = data?.puzzle;
   const finished = Boolean(result);
   const maxAttempts = data?.maxAttempts ?? 15;
+  // `surrendered` vient de la partie rechargée, `outcome` de la partie qui
+  // vient de se terminer : les deux disent la même chose, jamais en même temps.
+  const issue = result?.outcome || (surrendered ? 'surrendered' : 'found');
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
       {finished && !surrendered && <Confetti />}
 
-      <PremiumModal
-        open={Boolean(upsell)}
-        onClose={() => setUpsell(null)}
-        titre={`Tes ${upsell?.freeAttempts ?? maxAttempts} chances sont passées`}
-        texte={`Le joueur mystère t'a résisté aujourd'hui. Avec l'abonnement, tu repars chaque jour
-                avec ${upsell?.premiumAttempts ?? 50} chances au lieu de ${upsell?.freeAttempts ?? maxAttempts}
-                — de quoi aller au bout des journées difficiles.`}
-      />
+      {/* « Envie de rejouer ? » — au bout de la partie, jamais avant, et une
+          seule fois par jour. Le composant gère lui-même sa politesse. */}
+      {finished && (
+        <ReplayModal
+          outcome={issue}
+          isPremium={isPremium}
+          maxAttempts={maxAttempts}
+          premiumAttempts={data?.premiumAttempts ?? 50}
+          gamesPerDay={training?.gamesPerDay ?? 5}
+        />
+      )}
 
       <div className="row row-between wrap" style={{ marginBottom: 18 }}>
         <div>
@@ -165,106 +165,18 @@ export default function Solo() {
       </div>
 
       {finished ? (
-        <div className="card">
-          <div className="result-hero">
-            <div className="result-icon">
-              <Icon name={result.outcome === 'found' ? 'trophy' : 'flag'} size={44} strokeWidth={1.5} />
-            </div>
-            <h2 style={{ fontSize: 24, margin: '10px 0 6px' }}>
-              {result.outcome === 'exhausted'
-                ? `Tes ${maxAttempts} chances sont passées`
-                : result.outcome === 'surrendered'
-                  ? 'Partie abandonnée'
-                  : `Trouvé en ${result.attempts} tentative${result.attempts > 1 ? 's' : ''}`}
-            </h2>
-            <p className="muted">Le joueur mystère était</p>
-            <p className="result-word">{result.word}</p>
-
-            {description && (
-              <div className="bio">
-                <span className="bio-label">Qui est-ce ?</span>
-                {description}
-              </div>
-            )}
-          </div>
-
-          <div className="stat-grid" style={{ marginTop: 18 }}>
-            <div className="stat">
-              <div className="stat-value">{result.attempts}</div>
-              <div className="stat-label">Tentatives</div>
-            </div>
-            <div className="stat">
-              <div className="stat-value">{formatDuration(result.seconds || 0)}</div>
-              <div className="stat-label">Temps</div>
-            </div>
-            <div className="stat">
-              <div className="stat-value tier-blazing">{result.score}</div>
-              <div className="stat-label">Points</div>
-            </div>
-          </div>
-
-          {unlocked.length > 0 && (
-            <div className="stack-sm" style={{ marginTop: 18 }}>
-              <h3 style={{ fontSize: 16 }}>Médailles débloquées</h3>
-              <div className="badge-grid">
-                {unlocked.map((a) => (
-                  <div key={a.code} className="badge earned">
-                    <span className="badge-icon">
-                      <Icon name="medal" size={20} />
-                    </span>
-                    <div>
-                      <div className="badge-name">{a.name}</div>
-                      <div className="badge-desc">{a.description}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <ShareResult
-            puzzleNumber={puzzle?.number}
-            attempts={result.attempts}
-            score={result.score}
-            guesses={guesses}
-            outcome={result.outcome || (surrendered ? 'surrendered' : 'found')}
-            maxAttempts={maxAttempts}
-          />
-
-          {/* La modale ne s'affiche qu'une fois : le chemin vers l'abonnement
-              doit rester visible sur l'écran de fin, sans insister. */}
-          {result.outcome === 'exhausted' && !isPremium && (
-            <div className="premium-note small muted" style={{ marginTop: 16 }}>
-              <Icon name="crown" size={14} /> {maxAttempts} chances par jour en gratuit.{' '}
-              <Link to="/premium">L'abonnement en donne {data?.premiumAttempts ?? 50}</Link>, sans
-              publicité, avec les archives.
-            </div>
-          )}
-
-          {/* Affiche quelle que soit l'issue, mais le TEXTE change : apres un
-              echec on ne felicite pas et on ne reclame pas, on constate. */}
-          <SupportPrompt
-            contexte="solo"
-            serie={stats?.currentStreak ?? 0}
-            issue={result.outcome === 'found' ? 'gagne' : 'perdu'}
-          />
-
-          <AdSlot slot="1234567890" />
-
-          <div className="row wrap" style={{ marginTop: 20, gap: 10 }}>
-            <Link to="/duel" className="btn btn-ghost grow">
-              <Icon name="swords" /> Jouer en duel
-            </Link>
-            <Link to="/classement" className="btn btn-ghost grow">
-              Voir le classement
-            </Link>
-          </div>
-
-          <div style={{ marginTop: 20 }}>
-            <h3 style={{ fontSize: 15, marginBottom: 8 }}>Tes {guesses.length} tentatives</h3>
-            <GuessList guesses={guesses} sort="best" />
-          </div>
-        </div>
+        <ResultCard
+          result={{ ...result, outcome: issue }}
+          description={description}
+          guesses={guesses}
+          unlocked={unlocked}
+          puzzleNumber={puzzle?.number}
+          maxAttempts={maxAttempts}
+          premiumAttempts={data?.premiumAttempts ?? 50}
+          isPremium={isPremium}
+          training={training}
+          serie={stats?.currentStreak ?? 0}
+        />
       ) : (
         <>
           <div className="card" style={{ marginBottom: 16 }}>
