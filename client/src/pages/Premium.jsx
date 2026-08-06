@@ -83,7 +83,14 @@ export default function Premium() {
   const kind = portefeuille();
   const queryClient = useQueryClient();
 
-  const { data: offer, isLoading } = useQuery({
+  /*
+   * `isError` est distingué de `!offer.enabled` à dessein. Les deux menaient
+   * au même écran « L'abonnement n'est pas encore ouvert », si bien qu'une
+   * panne de l'API se lisait comme une décision commerciale : le visiteur
+   * repartait convaincu qu'il n'y avait rien à acheter, et rien dans
+   * l'interface ne trahissait le problème. C'est exactement ce qui est arrivé.
+   */
+  const { data: offer, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['billing-offer'],
     queryFn: async () => (await api.get('/billing/offer')).data,
   });
@@ -168,7 +175,18 @@ export default function Premium() {
         classement, par construction.
       </div>
 
-      {!offer?.enabled ? (
+      {isError ? (
+        <div className="card center" style={{ marginTop: 22 }}>
+          <Icon name="alert" size={28} />
+          <p className="muted" style={{ marginTop: 10 }}>
+            Impossible de charger l'offre pour le moment. L'abonnement existe bien — c'est
+            l'affichage qui coince.
+          </p>
+          <button className="btn" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? 'Chargement…' : 'Réessayer'}
+          </button>
+        </div>
+      ) : !offer?.enabled ? (
         <div className="card center" style={{ marginTop: 22 }}>
           <p className="muted">
             L'abonnement n'est pas encore ouvert. Reviens bientôt !

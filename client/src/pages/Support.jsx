@@ -32,7 +32,9 @@ export default function Support() {
   const kind = portefeuille();
   const queryClient = useQueryClient();
 
-  const { data: options, isLoading } = useQuery({
+  // Même distinction que sur la page premium : une panne de l'API ne doit pas
+  // se lire comme « les dons ne sont pas ouverts ». Voir Premium.jsx.
+  const { data: options, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['donate-options'],
     queryFn: async () => (await api.get('/donate/options')).data,
   });
@@ -168,10 +170,21 @@ export default function Support() {
           </button>
         )}
 
-        {!options?.enabled && (
-          <p className="small muted center" style={{ marginTop: 12 }}>
-            Les dons ne sont pas encore ouverts.
-          </p>
+        {isError ? (
+          <div className="center" style={{ marginTop: 14 }}>
+            <p className="small muted" style={{ marginBottom: 10 }}>
+              Impossible de joindre le service de paiement. Réessaie dans un instant.
+            </p>
+            <button className="btn btn-sm" onClick={() => refetch()} disabled={isFetching}>
+              {isFetching ? 'Chargement…' : 'Réessayer'}
+            </button>
+          </div>
+        ) : (
+          !options?.enabled && (
+            <p className="small muted center" style={{ marginTop: 12 }}>
+              Les dons ne sont pas encore ouverts.
+            </p>
+          )
         )}
 
         {error && (
