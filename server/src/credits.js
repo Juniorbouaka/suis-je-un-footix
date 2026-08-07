@@ -1,5 +1,5 @@
 import { db } from './db.js';
-import { config, creditsForPlan } from './config.js';
+import { config, creditsForPlan, isAdminEmail } from './config.js';
 
 /**
  * Le grand livre des crédits.
@@ -33,14 +33,44 @@ import { config, creditsForPlan } from './config.js';
  *  Lecture
  * ------------------------------------------------------------------ */
 
+/**
+ * La ligne du compte, vue par le grand livre.
+ *
+ * L'administrateur est corrigé au passage, exactement comme le fait
+ * `findUserById` pour le reste du jeu : abonné à l'Illimité, sans rien
+ * écrire en base.
+ *
+ * Sans cette correction, il franchirait le mur de paiement — ses droits
+ * sont injectés en mémoire ailleurs — mais buterait ici sur un solde à
+ * zéro, parce que ce module lit la base et que la base, elle, ne sait rien
+ * de son statut. Il aurait lu « Plus de crédits » sur son propre site, à sa
+ * première proposition. Celui qui paie l'API du jeu doit pouvoir y jouer.
+ *
+ * L'e-mail est relu ici plutôt que passé par l'appelant : les vingt points
+ * d'entrée du module reçoivent un identifiant, pas un utilisateur, et une
+ * règle d'accès qui dépend de qui appelle est une règle qu'on oublie
+ * d'appliquer quelque part.
+ */
 function row(userId) {
-  return db
+  const u = db
     .prepare(
-      `SELECT id, credits, credits_renewed_at, credits_period_end,
+      `SELECT id, email, credits, credits_renewed_at, credits_period_end,
               subscription_plan, is_subscriber, is_premium, premium_until
          FROM users WHERE id = ?`
     )
     .get(userId);
+
+  if (!u) return u;
+  if (!isAdminEmail(u.email)) return u;
+
+  return {
+    ...u,
+    is_subscriber: 1,
+    is_premium: 1,
+    // Une formule inconnue ne sert aucun crédit : sans cette valeur par
+    // défaut, l'administrateur serait rechargé de zéro tous les mois.
+    subscription_plan: u.subscription_plan || 'unlimited',
+  };
 }
 
 function journal(userId, delta, reason, ref, balance) {

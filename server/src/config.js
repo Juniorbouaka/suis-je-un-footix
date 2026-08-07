@@ -207,6 +207,7 @@ export const config = {
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean),
 
+
   mail: {
     apiKey: process.env.RESEND_API_KEY || '',
     from: process.env.MAIL_FROM || 'Suis-je un footix ? <onboarding@resend.dev>',
@@ -337,6 +338,24 @@ export const isProd = process.env.NODE_ENV === 'production';
  * n'est plus lu — il reste dans la signature pour que les vingt appels du
  * jeu n'aient pas à être touchés le jour où la règle redeviendra variable.
  */
+/**
+ * Cette adresse est-elle celle d'un administrateur ?
+ *
+ * La règle vit ici, dans le module qui porte déjà la liste, et non dans
+ * `auth.js` qui se contente de l'appeler. Ce n'est pas un déplacement
+ * gratuit : le grand livre des crédits a besoin de poser la même question,
+ * et `credits.js` ne peut pas importer `auth.js` — celui-ci importe
+ * `billing.js`, qui importe `credits.js`. Le cycle serait complet.
+ *
+ * `config.js` n'importe rien du jeu : c'est le seul endroit où cette règle
+ * peut vivre sans être recopiée, et une règle d'accès recopiée est une
+ * règle qui finit par diverger.
+ */
+export function isAdminEmail(email) {
+  const adresse = String(email || '').trim().toLowerCase();
+  return Boolean(adresse) && config.adminEmails.includes(adresse);
+}
+
 export function attemptsFor(_user) {
   return config.game.maxAttempts;
 }

@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { config } from './config.js';
+import { config, isAdminEmail } from './config.js';
 import { db } from './db.js';
 import { expireIfNeeded } from './billing.js';
 import { canUseTheme, DEFAULT_THEME } from './themes.js';
@@ -110,8 +110,7 @@ export function hasPaidAccess(user) {
  * depuis une sauvegarde, et aucune écriture ne peut promouvoir un compte.
  */
 export function isAdmin(user) {
-  const email = String(user?.email || '').trim().toLowerCase();
-  return Boolean(email) && config.adminEmails.includes(email);
+  return isAdminEmail(user?.email);
 }
 
 export function publicUser(user) {
