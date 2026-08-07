@@ -8,6 +8,7 @@ import PremiumBadge from '../components/PremiumBadge.jsx';
 import SupporterBadge from '../components/SupporterBadge.jsx';
 import SubscriptionCard from '../components/SubscriptionCard.jsx';
 import SubscriptionCancel from '../components/SubscriptionCancel.jsx';
+import CreditWallet from '../components/CreditWallet.jsx';
 import ThemePicker from '../components/ThemePicker.jsx';
 import DetailedStats from '../components/DetailedStats.jsx';
 
@@ -98,6 +99,10 @@ export default function Profile() {
 
       <SubscriptionCard />
 
+      {/* Le portefeuille suit immédiatement l'abonnement : c'est la même
+          question vue de deux côtés — ce que je paie, ce qu'il me reste. */}
+      <CreditWallet />
+
       <div className="card" style={{ marginBottom: 18 }}>
         <div className="row row-between wrap" style={{ marginBottom: 14, gap: 10 }}>
           <h2 style={{ fontSize: 18, margin: 0 }}>
@@ -105,7 +110,7 @@ export default function Profile() {
           </h2>
           {!isPremium && (
             <span className="pill faint">
-              <Icon name="lock" size={12} /> premium
+              <Icon name="lock" size={12} /> Illimité
             </span>
           )}
         </div>
@@ -115,7 +120,7 @@ export default function Profile() {
         ) : (
           <p className="muted small" style={{ margin: 0 }}>
             Ta progression mois par mois, la répartition de tes tentatives et l'issue de chacune de
-            tes parties. <Link to="/premium">Voir le premium</Link>.
+            tes parties. <Link to="/premium">Voir la formule Illimité</Link>.
           </p>
         )}
       </div>

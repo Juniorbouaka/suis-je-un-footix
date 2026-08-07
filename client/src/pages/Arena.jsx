@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getSocket } from '../lib/socket.js';
 import { useAuth } from '../lib/auth.jsx';
+import { publierCredits } from '../lib/credits.js';
 import Gauge from '../components/Gauge.jsx';
 import GuessList from '../components/GuessList.jsx';
 import Confetti from '../components/Confetti.jsx';
@@ -55,7 +56,7 @@ function Chrono({ startedAt }) {
 /** Arène : écran splitté, tours alternés, chat et revanche. */
 export default function Arena() {
   const navigate = useNavigate();
-  const { user, refreshProfile } = useAuth();
+  const { user, isPremium, refreshProfile } = useAuth();
   const inputRef = useRef(null);
   const chatRef = useRef(null);
 
@@ -125,7 +126,15 @@ export default function Arena() {
       setTimeout(() => setFlash(''), 3000);
     };
 
-    const onQuota = (q) => setQuota(q);
+    /*
+     * Revanche refusée faute de crédits. Le solde arrive avec le refus : on
+     * le publie pour que l'en-tête cesse d'annoncer un stock qui n'est plus
+     * là, et on garde l'état pour expliquer.
+     */
+    const onQuota = (q) => {
+      publierCredits(q);
+      setQuota(q);
+    };
 
     socket.on('state', onState);
     socket.on('game-start', onStart);
@@ -227,13 +236,26 @@ export default function Arena() {
     <div>
       {iWon && !walkover && <Confetti />}
 
+      {/*
+        La revanche est un duel de plus, et elle se paie comme tel — sinon le
+        portefeuille se contournerait en enchaînant les revanches. La fenêtre
+        ne s'ouvre que pour la formule Accès : à l'Illimité, il n'y a rien à
+        vendre, seulement une date de recharge à annoncer.
+      */}
       <PremiumModal
-        open={Boolean(quota)}
+        open={Boolean(quota) && !isPremium}
         onClose={() => setQuota(null)}
-        titre="Tes duels du jour sont joués"
-        texte={`La revanche compte comme un duel de plus, et tu as utilisé ton quota du jour
-                (${quota?.max ?? 1}). L'abonnement monte à ${quota?.premiumMax ?? 5} duels quotidiens.`}
+        titre="Plus de parties"
+        texte={`La revanche est un duel de plus : elle coûte ${quota?.needed ?? 1} partie de ton
+                stock, et il est épuisé. La formule Illimité en donne près de quatre fois plus.`}
       />
+
+      {quota && isPremium && (
+        <div className="alert alert-info" style={{ marginBottom: 12 }}>
+          Ton stock est épuisé — pas de revanche pour cette fois. Il se recharge à ta prochaine
+          échéance.
+        </div>
+      )}
 
       <div className="center" style={{ marginBottom: 12 }}>
         <span className="pill pill-blue">Même joueur mystère pour vous deux</span>
@@ -307,7 +329,11 @@ export default function Arena() {
           <SupportPrompt contexte="duel" issue={iWon || draw ? 'gagne' : 'perdu'} />
 
           <div className="row wrap" style={{ marginTop: 20, gap: 10, justifyContent: 'center' }}>
-            <button className="btn" onClick={() => getSocket()?.emit('rematch')}>
+            <button
+              className="btn"
+              onClick={() => getSocket()?.emit('rematch')}
+              title="Une revanche est un duel de plus : elle coûte une partie de ton stock"
+            >
               <Icon name="repeat" /> Revanche {rematchVotes.length ? `(${rematchVotes.length}/2)` : ''}
             </button>
             <button className="btn btn-ghost" onClick={leave}>

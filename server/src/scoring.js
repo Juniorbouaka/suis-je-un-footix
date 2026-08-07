@@ -94,9 +94,34 @@ function yesterdayOf(dateStr) {
   return d.toISOString().slice(0, 10);
 }
 
-/** Met à jour les stats après une partie solo gagnée. */
+/**
+ * Met à jour les stats après une partie solo gagnée.
+ *
+ * UNE SEULE partie classée par jour, et c'est la première. Les suivantes se
+ * jouent hors classement : elles ne rapportent ni point, ni série, ni
+ * record. Le joueur peut en enchaîner autant que son portefeuille le
+ * permet — il achète du temps de jeu, jamais des points.
+ *
+ * C'est la garantie qui tient le classement debout depuis qu'on vend des
+ * crédits. Sans elle, le tableau ne classerait plus les meilleurs joueurs
+ * mais les plus gros porte-monnaie, et il ne voudrait plus rien dire pour
+ * personne — y compris pour ceux qui paient.
+ *
+ * Le contrôle vit ici, au seul endroit qui écrit les statistiques solo,
+ * plutôt que dans chaque route qui fait jouer. Une route ajoutée demain
+ * héritera de la règle sans avoir à y penser.
+ *
+ * @returns {{stats: object, ranked: boolean}}
+ */
 export function recordSoloWin(userId, { date, attempts, seconds, score }) {
   const stats = readStats(userId);
+
+  if (stats.lastRankedDate === date) {
+    // Déjà classé aujourd'hui : la partie compte pour le plaisir, pas pour
+    // le tableau. Rien n'est écrit, pas même la date de dernière partie.
+    return { stats, ranked: false };
+  }
+  stats.lastRankedDate = date;
 
   stats.daysCompleted += 1;
   stats.totalScore += score;
@@ -109,7 +134,7 @@ export function recordSoloWin(userId, { date, attempts, seconds, score }) {
   stats.avgScore = Math.round(stats.totalScore / stats.daysCompleted);
 
   writeStats(userId, stats);
-  return stats;
+  return { stats, ranked: true };
 }
 
 /**

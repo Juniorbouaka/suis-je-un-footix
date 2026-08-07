@@ -8,6 +8,7 @@ import { multiplayerScore, recordPvpResult, readStats } from './scoring.js';
 import { evaluatePvp } from './achievements.js';
 import { isKnownPlayer, randomWord } from './words.js';
 import { duelQuota } from './duels.js';
+import { refund, spend } from './credits.js';
 
 /* ------------------------------------------------------------------ *
  *  État en mémoire
@@ -246,15 +247,73 @@ function finishGame(io, room, { winnerId, reason }) {
 }
 
 /**
- * Refuse un nouveau duel au joueur qui a fait le plein pour aujourd'hui.
+ * Refuse un duel au joueur qui n'a pas de quoi le payer.
  *
  * Le contrôle est ici et non côté client : c'est le seul endroit qu'un joueur
  * ne peut pas contourner, et c'est juste avant la dépense.
+ *
+ * `cout` change selon la porte d'entrée : un crédit pour la file aléatoire,
+ * deux pour celui qui invite — il offre la partie de son adversaire.
  */
-function duelRefused(socket, userId) {
+function duelRefused(socket, userId, cout = config.credits.costDuel) {
   const quota = duelQuota(userId);
-  if (quota.remaining > 0) return false;
-  socket.emit('duel-quota', quota);
+  if (quota.balance >= cout) return false;
+  socket.emit('duel-quota', { ...quota, needed: cout, needsCredits: true });
+  return true;
+}
+
+/**
+ * Encaisse le duel qui vient d'être formé.
+ *
+ * Le débit a lieu à la création du salon, jamais avant : tant qu'il n'y a pas
+ * d'adversaire, il n'y a pas de partie, et rester dix minutes dans la file
+ * d'attente ne doit rien coûter.
+ *
+ * Deux tarifs selon la porte d'entrée :
+ *
+ *   — file aléatoire : chacun paie son crédit ;
+ *   — invitation : l'hôte paie pour deux, l'invité ne paie rien. C'est le
+ *     seul chemin par lequel on peut jouer sans dépenser, et il est payé par
+ *     quelqu'un — celui qui a envoyé le code.
+ *
+ * En cas d'échec du second débit, le premier est rendu. Un salon à moitié
+ * payé n'existe pas : soit les deux paient, soit personne ne joue.
+ *
+ * @returns {boolean} true si le duel est payé et peut démarrer.
+ */
+function payerDuel(io, room, { hoteId = null } = {}) {
+  const ref = `duel:${room.id}`;
+  const [a, b] = room.order;
+
+  // Sur invitation, une seule facture au nom de l'hôte. Sinon, une par joueur.
+  const factures = hoteId
+    ? [{ userId: hoteId, cost: config.credits.costDuelInvite, reason: 'duel-invitation' }]
+    : [
+        { userId: a, cost: config.credits.costDuel, reason: 'duel' },
+        { userId: b, cost: config.credits.costDuel, reason: 'duel' },
+      ];
+
+  const payees = [];
+
+  for (const f of factures) {
+    const res = spend(f.userId, f.cost, f.reason, ref);
+    if (res.ok) {
+      payees.push(f);
+      continue;
+    }
+
+    // Rembourser ce qui a déjà été prélevé : le duel n'aura pas lieu.
+    for (const p of payees) refund(p.userId, p.cost, 'remboursement-duel-annule', ref);
+
+    broadcast(io, room, 'error-message', {
+      error:
+        f.userId === hoteId
+          ? 'Ton adversaire n’a plus assez de crédits pour ouvrir ce duel.'
+          : 'Un des deux joueurs n’a plus assez de crédits. Le duel est annulé, rien n’a été prélevé.',
+    });
+    return false;
+  }
+
   return true;
 }
 
@@ -320,6 +379,18 @@ export function attachRealtime(httpServer) {
       otherSocket?.join(room.id);
       socket.join(room.id);
 
+      /*
+       * Le joueur qui attendait dans la file a pu vider son portefeuille
+       * ailleurs depuis qu'il s'y est mis — une partie solo dans un autre
+       * onglet suffit. On vérifie donc au moment de facturer, pas au moment
+       * de s'inscrire, et un duel impayable est annulé avant d'avoir
+       * commencé plutôt que joué à crédit.
+       */
+      if (!payerDuel(io, room)) {
+        cleanupRoom(room);
+        return;
+      }
+
       broadcast(io, room, 'match-found', { ...roomState(room), countdown: 3 });
       launchGame(io, room);
     });
@@ -333,7 +404,10 @@ export function attachRealtime(httpServer) {
 
     socket.on('create-invite', () => {
       if (currentRoom()) return socket.emit('error-message', { error: 'Tu es déjà dans une partie.' });
-      if (duelRefused(socket, user.id)) return;
+      // Inviter coûte deux crédits : on joue et on offre. Vérifié dès la
+      // création du code, pour ne pas laisser distribuer une invitation qui
+      // se retournera contre l'invité au moment de la rejoindre.
+      if (duelRefused(socket, user.id, config.credits.costDuelInvite)) return;
       const code = crypto.randomBytes(3).toString('hex').toUpperCase();
       const pending = {
         code,
@@ -357,15 +431,24 @@ export function attachRealtime(httpServer) {
       if (pending.host.userId === user.id) {
         return socket.emit('error-message', { error: 'Tu ne peux pas rejoindre ta propre invitation.' });
       }
-      if (duelRefused(socket, user.id)) return;
-
-      // L'hôte a pu épuiser son quota depuis qu'il a créé le code : l'invité
-      // doit savoir pourquoi la partie ne démarre pas, et l'hôte aussi.
+      /*
+       * L'invité ne paie RIEN, donc on ne lui demande rien : pas de contrôle
+       * de solde, pas de refus. C'est tout l'intérêt de l'invitation — on
+       * peut faire jouer quelqu'un dont le portefeuille est vide, ou qui
+       * découvre le jeu. C'est l'hôte qui règle l'addition.
+       *
+       * Lui, en revanche, a pu vider son stock depuis qu'il a créé le code.
+       * L'invité doit savoir pourquoi la partie ne démarre pas — et l'hôte
+       * aussi, sinon il attend devant un écran qui ne bouge plus.
+       */
       const hostSocket = io.sockets.sockets.get(pending.host.socketId);
-      if (!hostSocket || duelRefused(hostSocket, pending.host.userId)) {
+      if (
+        !hostSocket ||
+        duelRefused(hostSocket, pending.host.userId, config.credits.costDuelInvite)
+      ) {
         invites.delete(pending.code);
         return socket.emit('error-message', {
-          error: 'Ton adversaire n’est plus disponible pour un duel aujourd’hui.',
+          error: 'Celui qui t’a invité n’a plus assez de crédits pour ouvrir ce duel.',
         });
       }
       invites.delete(pending.code);
@@ -376,6 +459,13 @@ export function attachRealtime(httpServer) {
       );
       hostSocket.join(room.id);
       socket.join(room.id);
+
+      // Une seule facture, au nom de l'hôte, pour les deux joueurs.
+      if (!payerDuel(io, room, { hoteId: pending.host.userId })) {
+        cleanupRoom(room);
+        return;
+      }
+
       broadcast(io, room, 'match-found', { ...roomState(room), countdown: 3 });
       launchGame(io, room);
     });
@@ -523,11 +613,19 @@ export function attachRealtime(httpServer) {
       const room = currentRoom();
       if (!room || room.status !== 'finished') return;
 
-      // Une revanche est un duel de plus : elle se décompte comme les autres,
-      // sinon le quota se contournerait en enchaînant les revanches.
+      /*
+       * Une revanche est un duel de plus : elle se paie comme les autres,
+       * sinon le portefeuille se contournerait en enchaînant les revanches.
+       *
+       * Chacun paie le sien, y compris celui qui avait été invité
+       * gratuitement à la première manche : l'invitation offre UNE partie,
+       * pas une soirée. Le contrôle a lieu au vote — refuser à ce
+       * moment-là, c'est éviter à l'autre d'attendre une revanche qui ne
+       * viendra pas.
+       */
       if (duelRefused(socket, user.id)) {
         socket.to(room.id).emit('error-message', {
-          error: `${user.username} n’a plus de duel disponible aujourd’hui.`,
+          error: `${user.username} n’a plus assez de crédits pour une revanche.`,
         });
         return;
       }
@@ -541,6 +639,17 @@ export function attachRealtime(httpServer) {
           { userId: aId, username: room.players[aId].username },
           { userId: bId, username: room.players[bId].username }
         );
+
+        // Le salon existe, mais rien n'est encaissé tant que les deux n'ont
+        // pas payé. Si l'un des soldes a fondu entre le vote et maintenant,
+        // la revanche est annulée et l'autre est remboursé.
+        if (!payerDuel(io, fresh)) {
+          cleanupRoom(fresh);
+          room.rematchVotes.clear();
+          broadcast(io, room, 'rematch-vote', { votes: [] });
+          return;
+        }
+
         for (const id of room.order) {
           for (const s of io.sockets.sockets.values()) {
             if (s.data.user?.id === id) {

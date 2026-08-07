@@ -40,9 +40,8 @@ export default function ResultCard({
   unlocked = [],
   puzzleNumber,
   maxAttempts = 15,
-  premiumAttempts = 50,
   isPremium = false,
-  training = null,
+  credits = null,
   serie = 0,
   // La page de test veut voir l'encart de soutien, que ses règles de
   // fréquence masqueraient neuf fois sur dix.
@@ -83,6 +82,19 @@ export default function ResultCard({
         </div>
       </div>
 
+      {/*
+        Partie hors classement : le score reste affiché — le joueur a le droit
+        de savoir comment il a joué — mais il faut dire tout de suite qu'il ne
+        compte pas. L'apprendre plus tard, en cherchant sa place au tableau,
+        serait la mauvaise façon de le découvrir.
+      */}
+      {result.ranked === false && gagne && (
+        <p className="small muted center" style={{ marginTop: 10 }}>
+          <Icon name="repeat" size={13} /> Partie hors classement : une seule compte par jour, et
+          c'était la première. Payer achète du temps de jeu, jamais des points.
+        </p>
+      )}
+
       {unlocked.length > 0 && (
         <div className="stack-sm" style={{ marginTop: 18 }}>
           <h3 style={{ fontSize: 16 }}>Médailles débloquées</h3>
@@ -111,21 +123,9 @@ export default function ResultCard({
         maxAttempts={maxAttempts}
       />
 
-      {/* « Et maintenant ? » — la seule question du joueur à cet instant.
-          Un abonné a une réponse : ses parties d'entraînement. Les autres
-          ont la fenêtre modale, puis ce rappel qui, lui, reste à l'écran. */}
-      {isPremium ? (
-        <ReplayPanel training={training} />
-      ) : (
-        <div className="premium-note small muted" style={{ marginTop: 16 }}>
-          <Icon name="crown" size={14} /> Une partie par jour en gratuit.{' '}
-          <Link to="/premium">
-            L'abonnement en donne {training?.gamesPerDay ?? 5}
-          </Link>{' '}
-          — dont {Math.max(1, (training?.gamesPerDay ?? 5) - 1)} d'entraînement, hors classement —
-          avec {premiumAttempts} chances au lieu de {maxAttempts}.
-        </div>
-      )}
+      {/* « Et maintenant ? » — la seule question du joueur à cet instant, et
+          la réponse tient dans son solde. */}
+      <ReplayPanel credits={credits} isPremium={isPremium} />
 
       {/* Affiche quelle que soit l'issue, mais le TEXTE change : apres un
           echec on ne felicite pas et on ne reclame pas, on constate. */}
@@ -157,16 +157,26 @@ export default function ResultCard({
   );
 }
 
+/** La date de recharge, en français, sans l'heure. */
+function jour(iso) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' });
+}
+
 /**
- * Ce qu'il reste à jouer aujourd'hui, pour un abonné.
+ * Ce qu'il reste à jouer, tout de suite.
  *
- * On annonce un chiffre — « cinq parties par jour » — donc on doit le tenir
- * à l'écran. Un compteur qui affiche zéro est plus honnête qu'un bouton qui
- * mènerait à un refus.
+ * Le joueur vient de finir sa partie : la question suivante est « est-ce que
+ * je peux en refaire une ? », et le solde y répond sans détour. Un compteur
+ * qui affiche zéro est plus honnête qu'un bouton qui mènerait à un refus.
+ *
+ * À zéro, ce qu'on propose dépend du forfait, et la distinction compte :
+ * proposer l'Illimité à quelqu'un qui l'a déjà, c'est lui vendre ce qu'il
+ * paie. Celui-là n'a rien à acheter, il a une date à attendre.
  */
-function ReplayPanel({ training }) {
-  const restantes = training?.remaining ?? 0;
-  const max = training?.max ?? 4;
+function ReplayPanel({ credits, isPremium }) {
+  const restantes = credits?.balance ?? 0;
+  const recharge = jour(credits?.nextRecharge);
 
   return (
     <div className={`replay-panel${restantes > 0 ? '' : ' vide'}`}>
@@ -175,18 +185,26 @@ function ReplayPanel({ training }) {
       </span>
       <div className="grow">
         <div className="replay-panel-title">
-          {restantes > 0 ? 'Envie de rejouer ?' : 'C’est tout pour aujourd’hui'}
+          {restantes > 0 ? 'Envie de rejouer ?' : 'Ton stock est épuisé'}
         </div>
         <p className="small muted" style={{ margin: '2px 0 0' }}>
           {restantes > 0
-            ? `Il te reste ${restantes} partie${restantes > 1 ? 's' : ''} d'entraînement sur ${max} — une journée d'archive, hors classement.`
-            : `Tes ${max} parties d'entraînement sont utilisées. Tout se remet à zéro à minuit.`}
+            ? `Il te reste ${restantes} partie${restantes > 1 ? 's' : ''} ce mois-ci — une journée d'archive se rejoue tout de suite, hors classement.`
+            : isPremium
+              ? `Tes ${credits?.monthly ?? ''} parties du mois sont jouées${recharge ? ` — ton stock se recharge le ${recharge}` : ''}.`
+              : `Tes ${credits?.monthly ?? ''} parties du mois sont jouées${recharge ? ` — recharge le ${recharge}` : ''}. La formule Illimité en donne bien plus.`}
         </p>
       </div>
-      {restantes > 0 && (
+      {restantes > 0 ? (
         <Link to="/archives" className="btn btn-sm">
           Choisir une journée
         </Link>
+      ) : (
+        !isPremium && (
+          <Link to="/premium" className="btn btn-sm">
+            Voir l'Illimité
+          </Link>
+        )
       )}
     </div>
   );

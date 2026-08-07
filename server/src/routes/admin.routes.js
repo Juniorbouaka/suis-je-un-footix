@@ -104,14 +104,40 @@ adminRouter.get('/stats', (req, res) => {
   );
   const played = count('SELECT COUNT(DISTINCT user_id) AS n FROM daily_results');
 
-  /* --- Abonnements et dons ------------------------------------- */
+  /* --- Abonnements et dons ------------------------------------- *
+   *
+   * `active` compte les ABONNÉS, pas les premium : depuis que le jeu est
+   * payant, un abonné au forfait Accès est un client comme un autre et
+   * l'oublier ferait mentir le tableau de bord d'un facteur deux ou trois.
+   */
   const premium = {
-    active: count('SELECT COUNT(*) AS n FROM users WHERE is_premium = 1'),
-    monthly: count("SELECT COUNT(*) AS n FROM users WHERE is_premium = 1 AND subscription_plan = 'monthly'"),
-    yearly: count("SELECT COUNT(*) AS n FROM users WHERE is_premium = 1 AND subscription_plan = 'yearly'"),
+    active: count('SELECT COUNT(*) AS n FROM users WHERE is_subscriber = 1 OR is_premium = 1'),
+    access: count("SELECT COUNT(*) AS n FROM users WHERE is_subscriber = 1 AND subscription_plan = 'access'"),
+    unlimited: count("SELECT COUNT(*) AS n FROM users WHERE is_subscriber = 1 AND subscription_plan = 'unlimited'"),
     // Résiliés qui terminent leur période payée : ils comptent encore comme
     // abonnés aujourd'hui, mais plus le mois prochain.
-    cancelled: count("SELECT COUNT(*) AS n FROM users WHERE is_premium = 1 AND subscription_status = 'CANCELLED'"),
+    cancelled: count("SELECT COUNT(*) AS n FROM users WHERE is_subscriber = 1 AND subscription_status = 'CANCELLED'"),
+  };
+
+  /* --- Crédits : ce qui a été servi, et ce qui a été consommé --- *
+   *
+   * Le rapport entre les deux est LE chiffre à surveiller. Les crédits
+   * distribués sont un engagement de dépense (chacun vaut jusqu'à 0,08 €
+   * d'appels API) ; les crédits consommés sont la dépense réelle. Tant que
+   * la consommation reste sous le stock distribué, la marge tient.
+   */
+  const credits = {
+    outstanding: count('SELECT COALESCE(SUM(credits), 0) AS n FROM users'),
+    spent30d: Math.abs(
+      count(
+        `SELECT COALESCE(SUM(delta), 0) AS n FROM credit_events
+          WHERE delta < 0 AND created_at >= date('now', '-30 days')`
+      )
+    ),
+    granted30d: count(
+      `SELECT COALESCE(SUM(delta), 0) AS n FROM credit_events
+        WHERE delta > 0 AND created_at >= date('now', '-30 days')`
+    ),
   };
 
   const don = db
@@ -203,6 +229,7 @@ adminRouter.get('/stats', (req, res) => {
       rate: played ? Math.round((returning / played) * 100) : 0,
     },
     premium,
+    credits,
     donations: { count: don.n, total: Math.round(don.total * 100) / 100 },
     // Les appels à Claude sont le seul poste de dépense variable du jeu :
     // ils ont leur place à côté des recettes.

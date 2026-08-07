@@ -2001,6 +2001,116 @@ a:hover {
   color: var(--text-muted);
 }
 
+/* ------------------------------------------------------------------ *
+ *  Les crédits — ce qu'on achète et ce qu'il en reste
+ *
+ *  Un seul principe : le nombre de parties est TOUJOURS le chiffre le
+ *  plus lisible de son bloc. C'est celui qu'on compare d'une formule à
+ *  l'autre, et celui qu'on cherche du regard avant de cliquer.
+ * ------------------------------------------------------------------ */
+
+.plan-credits {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.plan-credits strong {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--green-neon);
+}
+
+.plan-list {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  display: grid;
+  gap: 7px;
+  font-size: 13.5px;
+}
+
+.plan-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.45;
+}
+
+.plan-list li .icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--green-neon);
+}
+
+.plan-list li.faint .icon {
+  color: inherit;
+}
+
+/* Le solde dans l'en-tête. Il vit à côté des liens de navigation : il doit
+   se lire d'un coup d'œil sans attirer l'œil plus que le jeu lui-même. */
+.credit-pill {
+  gap: 6px;
+  text-decoration: none;
+  border-color: color-mix(in srgb, var(--green) 30%, transparent);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green-neon);
+}
+
+.credit-pill:hover {
+  border-color: color-mix(in srgb, var(--green-neon) 55%, transparent);
+}
+
+/* À zéro, la pastille change de couleur sans crier : c'est une information,
+   pas une alarme — le joueur n'a rien fait de mal. */
+.credit-pill-empty {
+  border-color: var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.credit-bar {
+  height: 9px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.credit-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--green), var(--green-neon));
+  transition: width 0.4s ease;
+}
+
+.credit-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13.5px;
+}
+
+/* Le débit et le crédit doivent se distinguer sans lire le signe : c'est un
+   relevé, on le parcourt en diagonale. */
+.credit-delta {
+  min-width: 34px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-muted);
+}
+
+.credit-delta.plus {
+  color: var(--green-neon);
+}
+
 .subscription-card.premium {
   border-color: color-mix(in srgb, var(--amber) 40%, transparent);
   background: linear-gradient(

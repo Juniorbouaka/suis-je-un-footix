@@ -49,21 +49,39 @@ const produit = await stripeRequest(
   'POST',
   '/products',
   {
-    name: 'Suis-je un footix ? — Premium',
-    description: 'Sans publicité, archives complètes, statistiques détaillées et thèmes.',
+    name: 'Suis-je un footix ?',
+    description: 'Abonnement au jeu : un stock de parties rechargé chaque mois.',
   },
-  { 'Idempotency-Key': `footix-produit-${suffixe}` }
+  // Clé d'idempotence NOUVELLE : l'ancienne pointe sur le produit « Premium »
+  // d'avant les crédits, et Stripe le renverrait tel quel au lieu de créer
+  // celui-ci. Un produit dont le nom ment est un produit qui apparaîtra faux
+  // sur les reçus des clients.
+  { 'Idempotency-Key': `footix-produit-credits-${suffixe}` }
 );
 
 console.log(`  produit créé : ${produit.id}`);
 
 /* ---------------------------------------------------------------- *
  *  2. Les deux prix
+ *
+ *  Deux abonnements mensuels, et rien d'autre. Ce qui les sépare est le
+ *  nombre de crédits servis chaque mois, pas la durée d'engagement — d'où
+ *  la disparition de l'annuel, qui n'avait plus rien à dire de différent.
  * ---------------------------------------------------------------- */
 
 const PRIX = [
-  { cle: 'monthly', env: 'STRIPE_PRICE_MONTHLY', centimes: 299, interval: 'month' },
-  { cle: 'yearly', env: 'STRIPE_PRICE_YEARLY', centimes: 1999, interval: 'year' },
+  {
+    cle: 'access',
+    env: 'STRIPE_PRICE_ACCESS',
+    centimes: 299,
+    nom: 'Accès — 20 parties par mois',
+  },
+  {
+    cle: 'unlimited',
+    env: 'STRIPE_PRICE_UNLIMITED',
+    centimes: 999,
+    nom: 'Illimité — 75 parties par mois',
+  },
 ];
 
 const resultats = [];
@@ -77,12 +95,12 @@ for (const p of PRIX) {
         product: produit.id,
         currency: 'eur',
         unit_amount: p.centimes,
-        recurring: { interval: p.interval },
-        nickname: `Premium ${p.cle === 'monthly' ? 'mensuel' : 'annuel'}`,
+        recurring: { interval: 'month' },
+        nickname: p.nom,
       },
       { 'Idempotency-Key': `footix-prix-${p.cle}-${suffixe}` }
     );
-    console.log(`  prix ${p.cle} créé : ${prix.id}`);
+    console.log(`  prix ${p.cle} créé : ${prix.id} (${(p.centimes / 100).toFixed(2)} €/mois)`);
     resultats.push({ ...p, id: prix.id });
   } catch (err) {
     console.error(`  ⨯ prix ${p.cle} : ${err.message}`);

@@ -35,20 +35,39 @@ if (!user) {
 if (retirer) {
   db.prepare(
     `UPDATE users
-        SET is_premium = 0, subscription_provider = NULL, subscription_status = NULL,
+        SET is_premium = 0, is_subscriber = 0, credits = 0,
+            subscription_provider = NULL, subscription_status = NULL,
             premium_until = NULL
       WHERE id = ?`
   ).run(user.id);
-  console.log(`Premium retiré à ${user.username} <${user.email}>.`);
+  console.log(`Abonnement retiré à ${user.username} <${user.email}>.`);
 } else {
+  /*
+   * `is_subscriber` autant que `is_premium` : depuis que le jeu est payant,
+   * accorder l'un sans l'autre offrirait les avantages du haut de gamme à
+   * quelqu'un qui reste bloqué devant le mur d'entrée.
+   *
+   * Le forfait est forcé à « unlimited » : c'est un geste, il donne tout.
+   */
   db.prepare(
     `UPDATE users
         SET is_premium = 1,
+            is_subscriber = 1,
             subscription_provider = 'manuel',
             subscription_status = 'MANUAL',
-            subscription_plan = COALESCE(subscription_plan, 'yearly'),
+            subscription_plan = 'unlimited',
             premium_until = NULL
       WHERE id = ?`
   ).run(user.id);
-  console.log(`Premium accordé à ${user.username} <${user.email}> — sans échéance.`);
+
+  // Les crédits ne suivent pas tout seuls : `grantMonthly` écrit le stock du
+  // forfait, et la recharge automatique tous les 32 jours prendra le relais
+  // (un compte offert n'a pas d'échéance qui la déclencherait autrement).
+  const { grantMonthly } = await import('../src/credits.js');
+  const apres = grantMonthly(user.id, 'don-manuel');
+
+  console.log(
+    `Abonnement Illimité accordé à ${user.username} <${user.email}> — ` +
+      `sans échéance, ${apres?.credits ?? 0} crédits.`
+  );
 }

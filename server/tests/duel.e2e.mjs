@@ -7,6 +7,8 @@
  * Usage : npm run test:duel   (le serveur doit tourner)
  */
 import { io } from 'socket.io-client';
+import { db } from '../src/db.js';
+import { grantMonthly } from '../src/credits.js';
 
 const API = process.env.API_URL || 'http://localhost:4000';
 const stamp = Date.now();
@@ -29,6 +31,29 @@ async function register(username) {
   return res.json();
 }
 
+/**
+ * Abonne le compte fraîchement créé, directement en base.
+ *
+ * Depuis que le jeu est payant, la socket refuse la poignée de main d'un
+ * compte sans abonnement : sans cette étape, le test ne mesurerait plus que
+ * l'efficacité du mur de paiement. On écrit donc les droits comme le ferait
+ * un webhook, puis on sert le stock de crédits — un duel se paie.
+ *
+ * Le serveur relit `is_subscriber` à chaque poignée de main, il n'y a donc
+ * rien à redémarrer entre l'écriture et la connexion.
+ */
+function abonner(userId) {
+  db.prepare(
+    `UPDATE users
+        SET is_subscriber = 1, is_premium = 1,
+            subscription_provider = 'test',
+            subscription_status = 'ACTIVE',
+            subscription_plan = 'unlimited'
+      WHERE id = ?`
+  ).run(userId);
+  grantMonthly(userId, 'test-e2e');
+}
+
 function connect(token, tag) {
   return new Promise((resolve, reject) => {
     const socket = io(API, { auth: { token }, transports: ['websocket'] });
@@ -43,6 +68,8 @@ function connect(token, tag) {
 
 const a = await register('alice');
 const b = await register('bob');
+abonner(a.user.id);
+abonner(b.user.id);
 const sa = await connect(a.accessToken, 'ALICE');
 const sb = await connect(b.accessToken, 'BOB');
 

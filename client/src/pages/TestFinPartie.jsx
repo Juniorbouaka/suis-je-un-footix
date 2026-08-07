@@ -48,6 +48,8 @@ const ISSUES = [
 export default function TestFinPartie() {
   const [issue, setIssue] = useState('found');
   const [premium, setPremium] = useState(false);
+  // Le solde décide de tout sur cet écran : au-dessus de zéro on propose de
+  // rejouer, à zéro on annonce la recharge — et la fenêtre ne s'ouvre que là.
   const [restantes, setRestantes] = useState(3);
   // Change à chaque relance : remonter la fenêtre revient à la recréer.
   const [cle, setCle] = useState(0);
@@ -55,6 +57,15 @@ export default function TestFinPartie() {
 
   const modele = ISSUES.find((i) => i.key === issue);
   const guesses = GUESSES.slice(0, Math.min(GUESSES.length, modele.attempts));
+
+  // Un portefeuille inventé, de la même forme que celui du serveur : les
+  // composants ne doivent pas savoir qu'ils sont sur une page de test.
+  const portefeuille = {
+    balance: restantes,
+    monthly: premium ? 75 : 20,
+    nextRecharge: '2026-09-01T00:00:00.000Z',
+    costs: { solo: 1, duel: 1, duelInvite: 2 },
+  };
 
   const result = {
     attempts: modele.attempts,
@@ -106,32 +117,30 @@ export default function TestFinPartie() {
             </div>
             <div className="tabs" style={{ marginBottom: 0 }}>
               <button className={`tab${premium ? '' : ' active'}`} onClick={() => setPremium(false)}>
-                Gratuit — le pop-up s’affiche
+                Accès — le pop-up s’affiche à zéro
               </button>
               <button className={`tab${premium ? ' active' : ''}`} onClick={() => setPremium(true)}>
-                Premium — pas de pop-up
+                Illimité — jamais de pop-up
               </button>
             </div>
           </div>
 
-          {premium && (
-            <div>
-              <div className="small muted" style={{ marginBottom: 6, fontWeight: 650 }}>
-                Parties d’entraînement restantes
-              </div>
-              <div className="tabs" style={{ marginBottom: 0 }}>
-                {[3, 1, 0].map((n) => (
-                  <button
-                    key={n}
-                    className={`tab${restantes === n ? ' active' : ''}`}
-                    onClick={() => setRestantes(n)}
-                  >
-                    {n === 0 ? 'aucune' : `${n} restante${n > 1 ? 's' : ''}`}
-                  </button>
-                ))}
-              </div>
+          <div>
+            <div className="small muted" style={{ marginBottom: 6, fontWeight: 650 }}>
+              Parties restantes au stock
             </div>
-          )}
+            <div className="tabs" style={{ marginBottom: 0 }}>
+              {[12, 1, 0].map((n) => (
+                <button
+                  key={n}
+                  className={`tab${restantes === n ? ' active' : ''}`}
+                  onClick={() => setRestantes(n)}
+                >
+                  {n === 0 ? 'aucune' : `${n} restante${n > 1 ? 's' : ''}`}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="row wrap" style={{ gap: 10 }}>
             <button className="btn btn-sm" onClick={relancer} disabled={premium}>
@@ -142,11 +151,18 @@ export default function TestFinPartie() {
             </Link>
           </div>
 
-          {premium && (
+          {premium ? (
             <p className="small faint" style={{ margin: 0 }}>
-              Un abonné ne voit jamais cette fenêtre : il a déjà ce qu'elle vend. À la place,
-              l'encart « Envie de rejouer ? » lui montre ses parties d'entraînement restantes.
+              Un abonné Illimité ne voit jamais cette fenêtre : il a déjà ce qu'elle vend. À zéro,
+              l'encart lui annonce simplement sa date de recharge.
             </p>
+          ) : (
+            restantes > 0 && (
+              <p className="small faint" style={{ margin: 0 }}>
+                Tant qu'il reste des parties, la fenêtre ne s'ouvre pas d'elle-même : il n'y a rien
+                à proposer à quelqu'un qui peut déjà rejouer. Le bouton ci-dessus la force.
+              </p>
+            )
           )}
         </div>
       </div>
@@ -158,11 +174,10 @@ export default function TestFinPartie() {
           key={cle}
           outcome={issue}
           isPremium={premium}
-          maxAttempts={15}
-          premiumAttempts={50}
-          gamesPerDay={5}
-          // La règle « une fois par jour » est court-circuitée ici, sinon la
-          // page ne montrerait rien dès la deuxième visite.
+          credits={portefeuille}
+          // Les règles « une fois par jour » et « seulement à zéro » sont
+          // court-circuitées ici, sinon la page ne montrerait rien dès la
+          // deuxième visite.
           force={!premium}
           onClose={() => setPopup(false)}
         />
@@ -175,9 +190,8 @@ export default function TestFinPartie() {
         unlocked={issue === 'found' ? MEDAILLES : []}
         puzzleNumber={212}
         maxAttempts={15}
-        premiumAttempts={50}
         isPremium={premium}
-        training={{ remaining: restantes, max: 4, gamesPerDay: 5 }}
+        credits={portefeuille}
         serie={issue === 'found' ? 7 : 0}
         forcerSoutien
       />

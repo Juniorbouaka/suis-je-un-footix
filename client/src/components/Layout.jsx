@@ -6,11 +6,12 @@ import { closeSocket } from '../lib/socket.js';
 import AuthModal from './AuthModal.jsx';
 import Icon from './Icon.jsx';
 import PremiumBadge from './PremiumBadge.jsx';
+import CreditBadge from './CreditBadge.jsx';
 import PitchBackground from './PitchBackground.jsx';
 import { ConsentBanner } from './Ads.jsx';
 
 export default function Layout({ children }) {
-  const { isAuthenticated, user, isPremium, logout } = useAuth();
+  const { isAuthenticated, user, isPremium, hasAccess, logout } = useAuth();
   const { theme, toggle } = useTheme();
   const [authOpen, setAuthOpen] = useState(false);
   const navigate = useNavigate();
@@ -68,7 +69,15 @@ export default function Layout({ children }) {
               </NavLink>
             )}
 
-            {!isPremium && (
+            {/*
+              Le solde d'un côté, l'offre de l'autre — jamais les deux.
+              Un abonné voit ce qui lui reste ; celui qui ne l'est pas voit le
+              prix d'entrée. Montrer « S'abonner » à quelqu'un qui paie déjà
+              est la meilleure façon de lui faire croire qu'il paie pour rien.
+            */}
+            {hasAccess ? (
+              <CreditBadge />
+            ) : (
               <>
                 {/* Le soutien avait sa place dans le pied de page, là où
                     personne ne descend. Un lien d'en-tête, discret mais
@@ -85,7 +94,7 @@ export default function Layout({ children }) {
                   to="/premium"
                   className={({ isActive }) => `nav-link nav-premium${isActive ? ' active' : ''}`}
                 >
-                  <Icon name="crown" size={14} /> Premium
+                  <Icon name="crown" size={14} /> S'abonner
                 </NavLink>
               </>
             )}
@@ -123,7 +132,7 @@ export default function Layout({ children }) {
             <span className="mono">v1.0</span>
           </div>
           <nav className="footer-links small">
-            <Link to="/premium">Premium</Link>
+            <Link to="/premium">Abonnement</Link>
             <Link to="/mentions-legales">Mentions légales</Link>
             <Link to="/confidentialite">Confidentialité</Link>
             <Link to="/cookies">Cookies</Link>

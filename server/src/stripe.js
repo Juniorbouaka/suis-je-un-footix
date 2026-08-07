@@ -206,6 +206,34 @@ export function cancelSubscriptionAtPeriodEnd(subscriptionId) {
   });
 }
 
+/**
+ * Change la formule d'un abonnement en cours.
+ *
+ * C'est le chemin de la montée en gamme, et il ne doit surtout PAS passer
+ * par une seconde page de paiement : celle-ci ouvrirait un deuxième
+ * abonnement à côté du premier, et le joueur serait prélevé deux fois tous
+ * les mois sans jamais comprendre pourquoi. On modifie la ligne existante.
+ *
+ * `proration_behavior: 'always_invoice'` facture immédiatement la
+ * différence, au prorata des jours restants. C'est le comportement qu'on
+ * attend d'un changement de formule : on paie ce qu'on prend, tout de suite,
+ * et l'échéance suivante ne bouge pas.
+ *
+ * `cancel_at_period_end: false` relance au passage un abonnement résilié
+ * mais encore courant : choisir une formule, c'est vouloir rester.
+ */
+export async function changeSubscriptionPrice(subscriptionId, priceId) {
+  const subscription = await getSubscription(subscriptionId);
+  const item = subscription?.items?.data?.[0];
+  if (!item) throw new Error('Abonnement Stripe sans ligne de facturation.');
+
+  return stripeRequest('POST', `/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    items: [{ id: item.id, price: priceId }],
+    proration_behavior: 'always_invoice',
+    cancel_at_period_end: false,
+  });
+}
+
 /* ------------------------------------------------------------------ *
  *  Dons — paiement ponctuel
  * ------------------------------------------------------------------ */

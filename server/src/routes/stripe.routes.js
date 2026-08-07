@@ -12,6 +12,7 @@ import {
 } from '../billing.js';
 import {
   cancelSubscriptionAtPeriodEnd,
+  changeSubscriptionPrice,
   createCheckoutSession,
   createDonationSession,
   getCheckoutSession,
@@ -68,11 +69,16 @@ function indisponible(ou) {
     : "Le paiement par carte n'est pas encore ouvert.";
 }
 
-/** Retrouve la clé de formule à partir d'un identifiant de prix Stripe. */
+/**
+ * Retrouve la clé de formule à partir d'un identifiant de prix Stripe.
+ *
+ * C'est ce qui décide, au webhook, si le joueur a pris l'Accès ou
+ * l'Illimité. Renvoyer null n'est pas une erreur : la formule déjà
+ * enregistrée sur le compte est alors conservée (voir writeRights).
+ */
 function planPourPrix(priceId) {
-  if (priceId && priceId === config.stripe.prices.monthly) return 'monthly';
-  if (priceId && priceId === config.stripe.prices.yearly) return 'yearly';
-  return null;
+  if (!priceId) return null;
+  return Object.keys(PLANS).find((cle) => priceId === config.stripe.prices[cle]) || null;
 }
 
 /* -------------------------------------------------------------- *
@@ -83,15 +89,47 @@ stripeRouter.post('/subscribe', requireAuth, limiter, async (req, res) => {
   if (!stripeUsable()) {
     return res.status(503).json({ error: indisponible('subscribe (verrou)') });
   }
-  if (req.user.is_premium) {
-    return res.status(409).json({ error: 'Tu es déjà abonné.' });
-  }
 
   const plan = PLANS[req.body?.plan];
   if (!plan) return res.status(400).json({ error: 'Formule inconnue.' });
 
   const priceId = config.stripe.prices[plan.key];
   if (!priceId) return res.status(503).json({ error: 'Cette formule est indisponible.' });
+
+  if (req.user.subscription_plan === plan.key && req.user.is_subscriber) {
+    return res.status(409).json({ error: 'Tu as déjà cette formule.' });
+  }
+
+  /*
+   * Changement de formule : on MODIFIE l'abonnement en cours, on n'en ouvre
+   * pas un second.
+   *
+   * Une seconde page de paiement créerait un deuxième abonnement à côté du
+   * premier — deux prélèvements tous les mois, et un joueur qui découvre la
+   * chose sur son relevé bancaire. C'est le genre d'erreur dont on ne se
+   * remet pas commercialement.
+   *
+   * Le nouveau stock de crédits est servi tout de suite : `applyStripe-
+   * Subscription` voit la formule changer et appelle `grantOnPlanChange`.
+   * Celui qui paie l'Illimité en cours de mois joue à l'Illimité le soir même.
+   */
+  const abonnementEnCours =
+    req.user.is_subscriber &&
+    req.user.subscription_provider === 'stripe' &&
+    req.user.subscription_id;
+
+  if (abonnementEnCours) {
+    try {
+      const subscription = await changeSubscriptionPrice(req.user.subscription_id, priceId);
+      const etat = applyStripeSubscription(req.user.id, subscription, plan.key);
+      return res.json({ changed: true, ...etat });
+    } catch (err) {
+      console.error('[stripe] changement de formule :', err.message);
+      return res.status(502).json({
+        error: "Stripe n'a pas pu changer ta formule. Réessaie dans un instant.",
+      });
+    }
+  }
 
   try {
     const { url } = await createCheckoutSession({
@@ -365,8 +403,8 @@ stripeRouter.get('/status', (req, res) => {
     rejectedSince: auth.rejectedSince,
     live: stripeEnabled && stripeIsLive,
     plans: {
-      monthly: Boolean(config.stripe.prices.monthly),
-      yearly: Boolean(config.stripe.prices.yearly),
+      access: Boolean(config.stripe.prices.access),
+      unlimited: Boolean(config.stripe.prices.unlimited),
     },
   });
 });

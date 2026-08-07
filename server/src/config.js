@@ -75,21 +75,45 @@ export const config = {
   /*
    * Règles de jeu.
    *
-   * Le nombre de chances est devenu la frontière entre le gratuit et
-   * l'abonnement. Chaque proposition est un appel facturé à Claude : une
-   * partie ouverte à cinquante essais pour tout le monde coûtait plus cher
-   * que ce qu'elle rapportait. Quinze chances suffisent à jouer sa journée,
-   * cinquante sont le confort qu'on achète.
+   * Il n'y a plus de forfait gratuit : jouer demande un abonnement. Le jeu
+   * s'est ouvert gratuitement pendant des mois et le compte est sans appel —
+   * 981 inscrits, zéro don, et une facture d'API à payer chaque mois. Chaque
+   * proposition est un appel facturé à Claude : un jeu qui ne se vend pas
+   * s'éteint, il ne devient pas rentable en attendant.
+   *
+   * Restent donc DEUX forfaits, et le nombre de chances est la frontière
+   * entre les deux. Quinze chances suffisent à jouer sa journée (forfait
+   * Accès, 2,99 €), cinquante sont le confort qu'on achète (forfait
+   * Illimité, 9,99 €).
    *
    * En duel, cette frontière disparaît : les quinze essais sont les mêmes
    * pour les deux adversaires. Ce que l'abonnement achète, c'est le nombre
    * de duels dans la journée — jamais un avantage à l'intérieur d'un duel.
+   *
+   * Les anciens noms de variables (MAX_ATTEMPTS_FREE, MAX_DUELS_FREE) sont
+   * encore lus en second recours : ils sont posés chez l'hébergeur et une
+   * bascule tarifaire n'a pas à casser des réglages qui restent justes.
    */
   game: {
     guessesPerMinute: 10, // rate limit métier (cahier des charges §8)
     minGuessIntervalMs: 1000, // max 1 appel/sec par joueur (§5)
-    maxAttemptsFree: Number(process.env.MAX_ATTEMPTS_FREE || 15), // solo gratuit : au-delà, perdu
-    maxAttemptsPremium: Number(process.env.MAX_ATTEMPTS_PREMIUM || 50), // solo abonné
+
+    /*
+     * Quinze chances par partie, pour tout le monde.
+     *
+     * L'ancien forfait premium en donnait cinquante. Ce n'est plus possible,
+     * et c'est le passage aux crédits qui l'interdit : une partie facturée
+     * un crédit doit coûter à peu près la même chose à servir, sinon le prix
+     * du crédit ne veut plus rien dire. Une partie à cinquante essais coûte
+     * plus de trois fois une partie à quinze — vendue au même crédit, elle
+     * transformait chaque gros joueur en perte sèche.
+     *
+     * Ce que le forfait supérieur achète, désormais, c'est le NOMBRE de
+     * parties, pas la longueur de chacune. C'est plus honnête à expliquer, et
+     * accessoirement plus juste : deux abonnés qui jouent la même journée
+     * jouent avec le même nombre de balles.
+     */
+    maxAttempts: Number(process.env.MAX_ATTEMPTS || process.env.MAX_ATTEMPTS_FREE || 15),
     // Duel : quinze essais chacun, abonné comme gratuit. C'est le seul
     // chiffre du jeu que l'argent ne change pas — deux adversaires qui ne
     // jouent pas avec le même nombre de balles ne font pas un duel.
@@ -98,35 +122,71 @@ export const config = {
     maxMissedTurns: Number(process.env.MAX_MISSED_TURNS || 3), // 3 tours manqués = forfait
 
     /*
-     * Duels par jour. Un duel, ce sont deux joueurs qui proposent jusqu'à
-     * quinze mots chacun : c'est le format le plus cher du jeu, et le seul
-     * qu'un visiteur pouvait enchaîner sans limite.
+     * Il n'y a plus de quota journalier — ni de duels, ni de parties.
      *
-     * Un duel par jour en gratuit : le rendez-vous quotidien, comme la
-     * partie du jour. L'abonnement en donne cinq, et pas plus — le plafond
-     * n'est pas une punition mais un garde-fou de dépense.
+     * Les crédits ont remplacé les deux. Un compteur par jour et un compteur
+     * par mois qui disent la même chose (« tu as assez joué »), c'est un de
+     * trop : le joueur ne sait plus lequel l'arrête, et le code doit garder
+     * les deux d'accord. Voir la section `credits` plus bas.
+     *
+     * Ce qui reste, et qui n'est PAS une affaire d'argent : une seule partie
+     * classée par jour. Celle-là est une règle de classement, pas de
+     * facturation — voir scoring.js.
      */
-    duelsPerDayFree: Number(process.env.MAX_DUELS_FREE || 1),
-    duelsPerDayPremium: Number(process.env.MAX_DUELS_PREMIUM || 5),
+    rankedPerDay: 1,
+  },
 
+  /*
+   * Les crédits — le compteur qui remplace tous les quotas.
+   *
+   * Une partie coûte un crédit. Le forfait en donne un stock chaque mois ;
+   * à zéro, on attend la recharge. C'est le seul compteur du jeu, et il est
+   * adossé à la seule chose qui coûte vraiment : les appels à l'API Claude.
+   *
+   * ── Le calcul qui fixe ces chiffres ────────────────────────────────
+   *
+   * Une proposition coûte ~0,0024 € (Sonnet, 2,56 $ les mille). L'escalade
+   * vers Opus sur les joueurs mal reconnus pousse la moyenne autour de
+   * 0,004 €. Une partie va jusqu'à quinze propositions : au pire ~0,06 €,
+   * en pratique plutôt 0,05 €. On retient 0,08 € par crédit — la marge
+   * d'erreur est du bon côté.
+   *
+   * Stripe prélève 1,5 % + 0,25 € par encaissement.
+   *
+   *   Accès    2,99 € → 2,70 € net → 20 crédits coûtent au pire 1,60 €
+   *                                   → il reste 1,10 € (41 %)
+   *   Illimité 9,99 € → 9,59 € net → 75 crédits coûtent au pire 6,00 €
+   *                                   → il reste 3,59 € (37 %)
+   *
+   * Au régime réaliste (une partie trouvée tourne autour de dix
+   * propositions, pas quinze), les deux forfaits laissent plutôt 60 %.
+   * Le jeu est bénéficiaire dans TOUS les cas, y compris si chaque abonné
+   * consomme son stock jusqu'au dernier crédit en épuisant ses quinze
+   * chances à chaque partie. C'était la condition à tenir.
+   *
+   * Un duel coûte deux crédits à qui l'ouvre par invitation : il paie pour
+   * lui et pour son invité, et deux joueurs, ce sont deux fois quinze
+   * propositions. En file aléatoire, chacun paie le sien.
+   */
+  credits: {
+    // Stock mensuel, par forfait. Rechargé à chaque échéance payée.
+    perPlan: {
+      access: Number(process.env.CREDITS_ACCESS || 20),
+      unlimited: Number(process.env.CREDITS_UNLIMITED || 75),
+    },
+    // Ce que coûte chaque format de partie.
+    costSolo: Number(process.env.CREDIT_COST_SOLO || 1),
+    costDuel: Number(process.env.CREDIT_COST_DUEL || 1),
+    // Duel sur invitation : l'hôte règle l'addition entière, invité compris.
+    costDuelInvite: Number(process.env.CREDIT_COST_DUEL_INVITE || 2),
     /*
-     * Parties solo par jour, pour un abonné.
-     *
-     * Cinq, et pas une de plus : la partie du jour, plus quatre journées
-     * d'archive rejouées. La première compte au classement, les quatre
-     * autres non — ce sont des parties d'entraînement.
-     *
-     * Cette frontière n'est pas décorative, c'est la promesse du jeu : un
-     * abonnement achète du temps de jeu, jamais des points. Le classement
-     * doit rester comparable entre celui qui paie et celui qui ne paie pas,
-     * sinon il ne classe plus rien.
-     *
-     * Le plafond est aussi un garde-fou de dépense : chaque proposition
-     * part vers l'API Claude et se facture. Le rejeu était jusqu'ici sans
-     * limite pour un abonné — soit, en théorie, autant de parties que de
-     * journées archivées dans la même soirée.
+     * Filet de sécurité : au-delà de ce délai sans recharge, on recharge
+     * quand même un abonné actif. Sert aux comptes offerts à la main (qui
+     * n'ont aucune échéance) et aux webhooks perdus. 32 jours et non 30 :
+     * il ne doit jamais se déclencher AVANT le renouvellement normal, sinon
+     * il distribuerait un second stock chaque mois.
      */
-    gamesPerDayPremium: Number(process.env.MAX_GAMES_PREMIUM || 5),
+    rechargeAfterDays: Number(process.env.CREDIT_RECHARGE_DAYS || 32),
   },
 
   // URL publique du site, utilisée dans les e-mails (lien de réinitialisation).
@@ -186,8 +246,8 @@ export const config = {
     // aux notifications. Sans lui, aucun webhook n'est accepté.
     webhookId: process.env.PAYPAL_WEBHOOK_ID || '',
     plans: {
-      monthly: process.env.PAYPAL_PLAN_MONTHLY || '',
-      yearly: process.env.PAYPAL_PLAN_YEARLY || '',
+      access: process.env.PAYPAL_PLAN_ACCESS || '',
+      unlimited: process.env.PAYPAL_PLAN_UNLIMITED || '',
     },
   },
 
@@ -205,16 +265,23 @@ export const config = {
     secretKey: process.env.STRIPE_SECRET_KEY || '',
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
     prices: {
-      monthly: process.env.STRIPE_PRICE_MONTHLY || '',
-      yearly: process.env.STRIPE_PRICE_YEARLY || '',
+      access: process.env.STRIPE_PRICE_ACCESS || '',
+      unlimited: process.env.STRIPE_PRICE_UNLIMITED || '',
     },
   },
 
-  // Tarifs affichés. Ils doivent correspondre aux plans PayPal ci-dessus :
-  // c'est PayPal qui facture, ces valeurs ne servent qu'à l'affichage.
+  /*
+   * Tarifs affichés. Ils doivent correspondre aux prix créés chez Stripe et
+   * aux plans PayPal ci-dessus : ce sont eux qui facturent, ces valeurs ne
+   * servent qu'à l'affichage.
+   *
+   * Deux forfaits mensuels, et rien d'autre. L'annuel à 19,99 € a disparu :
+   * avec un jeu devenu payant à l'entrée, un troisième prix sur la page
+   * n'aidait pas à choisir, il faisait hésiter.
+   */
   premium: {
-    monthlyPrice: process.env.PREMIUM_PRICE_MONTHLY || '2,99',
-    yearlyPrice: process.env.PREMIUM_PRICE_YEARLY || '19,99',
+    accessPrice: process.env.PREMIUM_PRICE_ACCESS || '2,99',
+    unlimitedPrice: process.env.PREMIUM_PRICE_UNLIMITED || '9,99',
     currency: 'EUR',
   },
 
@@ -264,27 +331,17 @@ export const isProd = process.env.NODE_ENV === 'production';
 /**
  * Nombre de chances d'un joueur sur une partie solo.
  *
- * Accepte indifféremment une ligne de la base (`is_premium`) ou l'utilisateur
- * d'une socket (`isPremium`) : les deux mondes appellent cette fonction, et
- * une règle de facturation ne doit exister qu'à un seul endroit.
+ * Le même pour tous depuis le passage aux crédits. La fonction est gardée
+ * plutôt qu'inlinée partout : la règle a déjà changé une fois, elle
+ * rechangera, et il vaut mieux qu'elle ait une adresse. L'argument `user`
+ * n'est plus lu — il reste dans la signature pour que les vingt appels du
+ * jeu n'aient pas à être touchés le jour où la règle redeviendra variable.
  */
-export function attemptsFor(user) {
-  const premium = Boolean(user?.is_premium ?? user?.isPremium);
-  return premium ? config.game.maxAttemptsPremium : config.game.maxAttemptsFree;
+export function attemptsFor(_user) {
+  return config.game.maxAttempts;
 }
 
-/**
- * Nombre de parties d'ENTRAÎNEMENT auxquelles un joueur a droit par jour.
- *
- * L'entraînement, ce sont les journées d'archive rejouées : elles ne
- * rapportent ni point, ni médaille, ni place au classement. La partie du
- * jour, elle, est toujours offerte et n'est jamais comptée ici — d'où le
- * « − 1 » : cinq parties par jour dont une classée, donc quatre libres.
- *
- * Zéro pour un compte gratuit : la partie du jour reste son rendez-vous.
- */
-export function trainingPerDay(user) {
-  const premium = Boolean(user?.is_premium ?? user?.isPremium);
-  if (!premium) return 0;
-  return Math.max(0, config.game.gamesPerDayPremium - 1);
+/** Stock mensuel de crédits d'un forfait. Formule inconnue = zéro crédit. */
+export function creditsForPlan(planKey) {
+  return config.credits.perPlan[planKey] || 0;
 }

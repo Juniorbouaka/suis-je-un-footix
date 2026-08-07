@@ -142,11 +142,12 @@ L'accès se règle par la variable `ADMIN_EMAILS` (adresses séparées par des v
 droit attaché au compte du jeu, pas un mot de passe supplémentaire : le serveur répond `404` à
 qui n'y figure pas, et retirer une adresse suffit à couper l'accès.
 
-**Un administrateur a aussi l'accès premium complet**, sans abonnement et sans écriture en base
-(`findUserById`) : 50 chances, 5 duels, archives, statistiques et thèmes. Celui qui paie l'API
-du jeu n'a pas à s'abonner à son propre jeu, et il doit pouvoir vérifier ce que voient ses
-abonnés. Retirer l'adresse de `ADMIN_EMAILS` retire les deux droits d'un coup, sans rien laisser
-à nettoyer dans la base.
+**Un administrateur a aussi tous les droits du jeu**, sans abonnement et sans écriture en base
+(`findUserById`) : `is_subscriber` **et** `is_premium`. Oublier le premier l'enfermerait dehors —
+il verrait le mur de paiement sur son propre site. Celui qui paie l'API du jeu n'a pas à
+s'abonner à son propre jeu, et il doit pouvoir vérifier ce que voient ses abonnés. Retirer
+l'adresse de `ADMIN_EMAILS` retire les droits d'un coup, sans rien laisser à nettoyer dans la
+base.
 
 Deux dates suivent chaque compte, parce qu'elles ne disent pas la même chose : `last_login_at`
 (dernière saisie du mot de passe) et `last_seen_at` (dernière requête authentifiée, écrite au
@@ -181,6 +182,7 @@ server/                  Node.js + Express + Socket.io
   src/achievements.js    médailles
   src/realtime.js        matchmaking, duel, chat, revanche
   src/billing.js         état de l'abonnement, expiration paresseuse des droits
+  src/credits.js         le grand livre : débits, remboursements, recharges, relevé
   src/paypal.js          client REST PayPal (fetch natif, aucune dépendance)
   src/themes.js          catalogue des décors de terrain
   src/routes/            auth · jeu · archives · classement · facturation
@@ -191,9 +193,10 @@ server/                  Node.js + Express + Socket.io
 client/                  React 18 + Vite
   src/components/        PitchBackground, Gauge, GuessList, Icon, AuthModal, Confetti, Layout
                          PremiumBadge, SubscriptionCard, ThemePicker, DetailedStats, Ads
+                         CreditBadge (en-tête), CreditWallet (profil)
   src/pages/             Landing · Solo · Matchmaking · Arena · Leaderboard · Profile
                          Archive · ArchiveGame · Premium · PremiumThanks · Legal
-  src/lib/               api, auth, socket, thème, présence
+  src/lib/               api, auth, socket, crédits, thème, présence
   src/styles.css         design system (verre dépoli, cartes flottantes, décor de stade)
 ```
 
@@ -212,13 +215,14 @@ client/                  React 18 + Vite
 | `GET` | `/api/leaderboard?scope=month\|all\|hall` | top 100 du mois, général, palmarès |
 | `GET` | `/api/stats/global` | compteurs d'accueil (dont `online` et `bankSize`) |
 | `POST` | `/api/presence` | ping de présence |
-| `GET` | `/api/archive` · `/archive/:date` | journées passées (3 jours libres, puis premium) |
-| `POST` | `/api/archive/:date/guess` · `/surrender` | **rejouer** une journée passée |
-| `DELETE` | `/api/archive/:date/replay` | effacer un rejeu et recommencer |
-| `GET` | `/api/me/stats/detailed` | statistiques détaillées (premium) |
+| `GET` | `/api/archive` · `/archive/:date` | journées passées (abonnés ; consulter est gratuit) |
+| `POST` | `/api/archive/:date/guess` · `/surrender` | **rejouer** une journée passée (1 crédit) |
+| `DELETE` | `/api/archive/:date/replay` | effacer un rejeu et recommencer (1 crédit) |
+| `GET` | `/api/me/stats/detailed` | statistiques détaillées (Illimité) |
 | `GET` | `/api/themes` · `PUT /api/me/theme` | décors de terrain |
-| `GET` | `/api/billing/offer` · `/status` | l'offre premium, l'abonnement en cours |
-| `POST` | `/api/billing/subscribe` · `/confirm` · `/cancel` | souscrire, confirmer, résilier |
+| `GET` | `/api/billing/offer` · `/status` | les deux forfaits, l'abonnement en cours |
+| `GET` | `/api/billing/credits` | le portefeuille et son relevé |
+| `POST` | `/api/billing/subscribe` · `/confirm` · `/cancel` | souscrire ou changer de formule, confirmer, résilier |
 | `POST` | `/api/billing/webhook` | notifications PayPal (signature vérifiée) |
 | `GET` | `/api/admin/stats?days=` | tableau de bord : comptes, connexions, revenus |
 | `GET` | `/api/admin/users?q=` | annuaire des comptes (administrateur) |
@@ -235,31 +239,67 @@ client/                  React 18 + Vite
 
 ## Règles et scoring
 
-**Solo** — **15 chances par jour** en gratuit (`MAX_ATTEMPTS_FREE`), **50 pour les abonnés**
-(`MAX_ATTEMPTS_PREMIUM`), réinitialisation à minuit UTC. Au-delà, la partie est perdue : le joueur
-est révélé avec sa fiche, score nul, et une fenêtre propose l'abonnement.
+**Jouer demande un abonnement.** Toutes les routes qui appellent l'API Claude passent par
+`requirePaidAccess`, et la socket refuse la poignée de main à un compte sans abonnement — un
+seul point de passage, aucun événement ajouté demain ne peut lui échapper par oubli. Le refus
+répond **402** et non 403 : le client sait alors qu'il ne manque pas un droit mais un
+abonnement, et renvoie vers l'offre.
+
+**Solo** — **15 chances par partie**, pour tout le monde, quel que soit le forfait
+(`MAX_ATTEMPTS`). Au-delà, la partie est perdue : le joueur est révélé avec sa fiche, score nul.
 `score = 1000 − 50 × (tentatives − 1) + (3600 − secondes) / 10`, plancher à 100.
 
-Un joueur qui s'abonne après avoir épuisé ses quinze chances retrouve sa partie du jour ouverte
-(`reopenIfUpgraded`) : on ne vend pas cinquante chances pour en livrer zéro.
+Ce que le forfait supérieur achète, c'est le **nombre de parties**, jamais leur longueur : une
+partie à cinquante essais coûte plus de trois fois une partie à quinze, et vendue au même crédit
+elle transformerait chaque gros joueur en perte sèche. Deux abonnés qui jouent la même journée
+jouent donc avec le même nombre de balles.
 
-**5 parties par jour pour les abonnés** (`MAX_GAMES_PREMIUM`), contre une seule en gratuit. La
-première est la partie du jour et **compte au classement** ; les quatre autres sont des **parties
-d'entraînement** — des journées d'archive rejouées, qui ne rapportent ni point, ni médaille, ni
-place au classement. C'est ce qui permet d'en vendre cinq sans abîmer le classement :
-l'abonnement achète du temps de jeu, jamais des points.
+**Une seule partie classée par jour** — la première, et c'est `scoring.js` qui l'impose, au seul
+endroit qui écrit les statistiques solo. Les suivantes se jouent hors classement : ni point, ni
+série, ni médaille. C'est la garantie qui tient le classement debout maintenant qu'on vend des
+crédits ; sans elle, le tableau classerait les porte-monnaie.
 
-Le compte se tient dans `training.js`, sans table supplémentaire : une journée consomme un crédit
-si sa **première** proposition a été envoyée aujourd'hui (UTC). Trois conséquences voulues —
-une partie commencée hier et terminée ce matin ne coûte rien aujourd'hui, ouvrir une journée sans
-rien proposer ne coûte rien non plus (regarder n'appelle pas l'IA), et l'abandon sec d'une journée
-jamais entamée est compté comme une partie, sans quoi il suffirait d'abandonner pour lire tout le
-catalogue. Le refus est prononcé à la première proposition, jamais en cours de partie : couper
-quelqu'un au dixième essai serait une punition, pas une limite.
+### Les crédits
+
+Un seul compteur remplace tous les quotas journaliers d'avant. **Une partie coûte un crédit** —
+partie du jour, journée d'archive rejouée ou duel. Une invitation en coûte deux à celui qui
+l'envoie : il paie pour lui et pour son invité, qui n'a besoin de rien pour répondre. Le forfait
+sert un stock chaque mois (`CREDITS_ACCESS`, `CREDITS_UNLIMITED`), **remplacé** et non additionné
+à chaque échéance payée : c'est un abonnement, pas une cagnotte.
+
+Trois principes tiennent `credits.js` :
+
+1. **On débite à l'ouverture**, jamais à chaque proposition. Le prix d'une partie s'annonce
+   avant de la commencer.
+2. **Une partie commencée est payée une seule fois.** Le débit porte la référence de la partie
+   (`solo:2026-08-07`, `archive:2026-07-02`, `duel:<salon>`) : recharger la page, perdre la
+   connexion ou reprendre le lendemain ne redébite rien.
+3. **Ce qui n'a pas été servi est remboursé.** Panne de l'évaluateur sur la première
+   proposition, duel qui ne démarre jamais, adversaire introuvable : le crédit revient.
+
+Deux garde-fous méritent d'être connus. L'abandon sec d'une partie jamais entamée est facturé —
+sinon la porte de sortie deviendrait la porte d'entrée : ouvrir, abandonner, lire la réponse,
+recommencer demain. Et « recommencer » une journée d'archive débite immédiatement, parce qu'une
+journée déjà payée le reste : sans ce débit, effacer ses propositions puis rejouer aurait rendu
+la journée gratuite indéfiniment.
+
+Chaque mouvement laisse une ligne dans `credit_events`, lisible par le joueur depuis son profil.
+`alreadyPaid` lit le **solde** de la référence et non la présence d'un débit : une partie
+débitée puis remboursée laisse deux lignes qui s'annulent et redevient payante, sans qu'on ait
+jamais à effacer un mouvement. Un relevé où les lignes disparaissent ne prouve plus rien, et
+c'est précisément le jour où quelqu'un conteste qu'on en a besoin.
+
+La recharge est **paresseuse**, comme l'expiration du premium : aucune tâche planifiée, et une
+base restaurée d'une sauvegarde se remet d'aplomb à la première requête. Le signal normal est
+l'**avancée de l'échéance** (`rechargeOnRenewal`) — un webhook rejoué porte la même échéance et
+ne recharge donc rien, sans qu'on ait à tenir une table d'événements vus. Un filet de sécurité
+à 32 jours (`CREDIT_RECHARGE_DAYS`) rattrape les webhooks perdus et sert les comptes offerts à
+la main, qui n'ont aucune échéance ; 32 et non 30, pour qu'il ne tombe jamais avant le
+renouvellement normal.
 
 **Duel** — les deux cherchent le même joueur mystère, les tours alternent, le premier qui donne le
-nom exact gagne. **15 essais chacun** (`MAX_ATTEMPTS_PVP`) — le même nombre pour l'abonné et le
-gratuit : l'argent achète des duels, jamais un avantage à l'intérieur d'un duel. Quand les deux
+nom exact gagne. **15 essais chacun** (`MAX_ATTEMPTS_PVP`) — le même nombre quel que soit le
+forfait : l'argent achète des duels, jamais un avantage à l'intérieur d'un duel. Quand les deux
 sont à sec sans avoir trouvé, c'est **match nul** : ni victoire ni défaite au compteur, la série
 de victoires est gelée sans être cassée. `score = 200 + bonus de rapidité + bonus d'efficacité +
 50 × série`. Nul : 100 points. Défaite : 50 points de participation.
@@ -267,12 +307,15 @@ de victoires est gelée sans être cassée. `score = 200 + bonus de rapidité + 
 L'abandon, le forfait (trois tours manqués) et la déconnexion restent des défaites : l'un des
 deux a quitté la partie, l'autre l'a tenue jusqu'au bout.
 
-**1 duel par jour** en gratuit (`MAX_DUELS_FREE`), **5 pour les abonnés**
-(`MAX_DUELS_PREMIUM`) : un duel, ce sont deux joueurs et jusqu'à trente propositions évaluées.
-Le compte se lit dans `multiplay_games` — abandons et déconnexions inclus, ils ont coûté leurs
-appels comme les autres — et le refus est prononcé par la socket avant la dépense, à l'entrée en
-matchmaking, à la création ou l'acceptation d'une invitation, et **à la revanche** (sans quoi le
-quota se contournerait en enchaînant les revanches).
+**Un duel coûte un crédit** — deux joueurs, jusqu'à trente propositions évaluées. En file
+aléatoire chacun paie le sien ; sur invitation l'hôte règle l'addition entière, invité compris.
+C'est le seul chemin par lequel on peut jouer sans dépenser, et il est payé par quelqu'un.
+
+Le débit tombe à la **formation du salon**, jamais avant : attendre dix minutes dans la file ne
+coûte rien. Si le second débit échoue, le premier est remboursé — un salon à moitié payé
+n'existe pas. La revanche se paie comme un duel de plus, y compris pour celui qui avait été
+invité gratuitement : l'invitation offre une partie, pas une soirée. Sans quoi le portefeuille
+se contournerait en enchaînant les revanches.
 
 **Classement** — trois lectures : **le mois** en cours (remise à zéro le 1er), le **général**
 (cumul de toujours) et le **palmarès**, qui garde le vainqueur de chaque mois terminé. Un mois est
@@ -290,26 +333,50 @@ planifiée, et un titre acquis ne se recalcule plus.
 Le jeu coûte de l'argent à chaque partie : chaque proposition part vers l'API Claude. Deux
 recettes le financent — l'abonnement et la publicité — et une troisième, les dons, complète.
 
-### L'abonnement premium
+### L'abonnement
+
+Le jeu s'est ouvert gratuitement pendant des mois, et le compte est sans appel : 981 inscrits,
+zéro don, une facture d'API tous les mois. Un jeu qui ne se vend pas s'éteint — il ne devient pas
+rentable en attendant. Il n'y a donc plus de forfait gratuit.
 
 | | |
 |---|---|
 | Encaisseurs | Stripe Checkout (carte, **Apple Pay**, **Google Pay**) · PayPal Subscriptions |
-| Tarifs | 2,99 €/mois · 19,99 €/an |
-| Ce que ça débloque | **5 parties par jour au lieu d'une** (dont 4 d'entraînement, hors classement) · **50 chances par jour au lieu de 15** · 5 duels au lieu d'un · sans publicité · archives complètes · statistiques détaillées · quatre décors de terrain · badge au classement |
+| **Accès** — 2,99 €/mois | **20 parties par mois** · duels · archives complètes et rejeu |
+| **Illimité** — 9,99 €/mois | **75 parties par mois** · sans publicité · statistiques détaillées · quatre décors de terrain · badge au classement |
 
-**Le volume de jeu quotidien est le cœur de l'offre.** Chaque proposition est un appel facturé à
-Claude : une partie ouverte à cinquante essais pour tout le monde coûte plus cher qu'elle ne
-rapporte. Quinze chances et une partie suffisent à jouer sa journée ; cinquante chances et cinq
-parties sont le confort qu'on achète.
+L'annuel à 19,99 € a disparu : avec un jeu payant à l'entrée, un troisième prix sur la page
+n'aidait pas à choisir, il faisait hésiter.
 
-**Ce que l'abonnement ne donne toujours pas :** d'indice, de point offert, ni d'accès à un
-meilleur évaluateur. Le score baisse de 50 points à chaque chance utilisée, pour tout le monde :
-un abonné qui trouve au 40ᵉ essai marque moins qu'un joueur gratuit qui trouve au 3ᵉ. Le rejeu des
-archives se déroule dans des tables séparées (`archive_guesses` / `archive_results`) : il ne
-touche ni `daily_results`, ni les statistiques, ni les médailles.
+**Le calcul qui fixe ces chiffres.** Une proposition coûte ~0,0024 € (Sonnet), l'escalade vers
+Opus sur les joueurs mal reconnus pousse la moyenne autour de 0,004 € ; une partie va jusqu'à
+quinze propositions, soit ~0,06 € au pire. On retient 0,08 € par crédit — la marge d'erreur est
+du bon côté. Stripe prélève 1,5 % + 0,25 €.
 
-Accorder le premium à la main (compte de test, geste commercial) :
+| Forfait | Net encaissé | Coût maximal du stock | Marge plancher |
+|---|---|---|---|
+| Accès (20 crédits) | 2,70 € | 1,60 € | 1,10 € (41 %) |
+| Illimité (75 crédits) | 9,59 € | 6,00 € | 3,59 € (37 %) |
+
+Au régime réaliste — une partie trouvée tourne autour de dix propositions, pas quinze — les deux
+laissent plutôt 60 %. Le jeu est bénéficiaire dans **tous** les cas, y compris si chaque abonné
+épuise ses quinze chances à chaque partie jusqu'au dernier crédit. C'était la condition à tenir.
+
+**Le changement de formule modifie l'abonnement en cours**, il n'en ouvre pas un second — chez
+Stripe par un changement de prix au prorata (`changeSubscriptionPrice`), chez PayPal par une
+révision approuvée par le payeur (`reviseSubscription`). Une seconde page de paiement aurait
+laissé courir le premier abonnement : deux prélèvements mensuels, découverts des semaines plus
+tard sur un relevé bancaire. Le nouveau stock est servi immédiatement (`grantOnPlanChange`) :
+qui paie l'Illimité en cours de mois joue à l'Illimité le soir même.
+
+**Ce que l'abonnement ne donne pas :** d'indice, de point offert, ni d'accès à un meilleur
+évaluateur — et pas une chance de plus par partie. Le score baisse de 50 points à chaque chance
+utilisée, pour tout le monde. Le rejeu des archives se déroule dans des tables séparées
+(`archive_guesses` / `archive_results`) : il ne touche ni `daily_results`, ni les statistiques,
+ni les médailles.
+
+Accorder un accès à la main (compte de test, geste commercial) — le script pose l'Illimité,
+sans échéance, et sert le stock de crédits :
 
 ```bash
 cd server
@@ -325,7 +392,7 @@ railway run npm run premium -- adresse@exemple.com
 cd server
 # 1. Renseigner PAYPAL_CLIENT_ID et PAYPAL_CLIENT_SECRET dans .env
 npm run paypal:setup      # cree le produit et les deux plans, affiche les identifiants
-# 2. Recopier PAYPAL_PLAN_MONTHLY et PAYPAL_PLAN_YEARLY dans .env
+# 2. Recopier PAYPAL_PLAN_ACCESS et PAYPAL_PLAN_UNLIMITED dans .env
 # 3. Declarer le webhook indique par le script, recopier PAYPAL_WEBHOOK_ID
 ```
 
@@ -338,11 +405,24 @@ renouvellements et les résiliations ne sont jamais pris en compte.
 
 #### Comment les droits s'ouvrent et se ferment
 
-`premium_until` porte la fin des droits, `is_premium` le drapeau effectif. Une résiliation ne
-coupe rien sur le champ : la période payée va à son terme. L'expiration se fait paresseusement,
-dans `findUserById`, à la première requête suivant l'échéance — il n'y a donc aucune tâche
-planifiée à maintenir. Un thème premium redevient automatiquement le thème libre quand
-l'abonnement s'éteint, sans effacer le choix : il est retrouvé tel quel en cas de réabonnement.
+`premium_until` porte la fin des droits — de **tous** les droits, quel que soit le forfait. Deux
+drapeaux répondent à deux questions distinctes : `is_subscriber` (a-t-il le droit de jouer ?) et
+`is_premium` (a-t-il le forfait Illimité ?). Un seul ne suffisait plus le jour où le jeu est
+devenu payant : `is_premium` répondait « a-t-il payé ? » **et** « a-t-il tout payé ? », deux
+questions qui n'ont plus la même réponse depuis qu'il existe un forfait d'entrée.
+
+Les deux tombent ensemble à l'expiration : ne retirer que `is_premium` laisserait la porte du jeu
+ouverte à un abonnement expiré depuis six mois. Une résiliation, elle, ne coupe rien sur le
+champ : la période payée va à son terme. L'expiration se fait paresseusement, dans
+`findUserById`, à la première requête suivant l'échéance — aucune tâche planifiée à maintenir.
+Un thème premium redevient automatiquement le thème libre quand le forfait s'éteint, sans
+effacer le choix : il est retrouvé tel quel en cas de réabonnement.
+
+**Reprise des comptes d'avant la bascule** (`db.js`, rejouée à chaque démarrage parce qu'elle
+énonce des invariants) : tout compte `is_premium` devient `is_subscriber` — un abonné mis à la
+porte le jour où l'on commence à vendre serait la pire manière de lancer l'offre — et les
+anciennes clés de formule (`monthly`, `yearly`) deviennent `unlimited`, sans quoi le premier
+webhook de renouvellement rétrograderait au forfait Accès un joueur qui n'a rien demandé.
 
 Deux chemins mettent l'abonnement à jour, volontairement redondants : le retour de PayPal
 (`/api/billing/confirm`, qui interroge PayPal côté serveur — le client ne décide de rien) et le

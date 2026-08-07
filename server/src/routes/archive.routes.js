@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { db } from '../db.js';
-import { requireAuth } from '../auth.js';
+import { requirePaidAccess } from '../auth.js';
 import { config, attemptsFor } from '../config.js';
 import {
   describePlayer,
@@ -11,59 +11,36 @@ import {
   validateGuess,
 } from '../claude.js';
 import { puzzleNumber, todayUtc } from '../words.js';
-import { trainingQuota, trainingStarted } from '../training.js';
+import { alreadyPaid, creditSummary, refund, spend, spendOnce } from '../credits.js';
+
+/** Référence du débit d'une journée rejouée. Une par joueur et par journée. */
+const refArchive = (date) => `archive:${date}`;
 
 export const archiveRouter = Router();
 
 /**
  * Les journées passées.
  *
- * Trois jours d'aperçu gratuit, le reste réservé aux abonnés. Un abonné peut
- * REJOUER une journée qu'il n'a pas faite : la partie se déroule comme en
- * solo, mais dans des tables séparées (archive_guesses / archive_results).
+ * Tout ce module exige un abonnement — même consulter la liste. Au-delà, il
+ * n'y a plus de niveaux : tout abonné voit tout l'historique et peut
+ * REJOUER n'importe quelle journée qu'il n'a pas faite, contre un crédit.
+ * La partie se déroule alors comme en solo, mais dans des tables séparées
+ * (archive_guesses / archive_results).
+ *
+ * Les trois jours d'aperçu et le quota de parties d'entraînement ont disparu
+ * ensemble : c'était deux façons de rationner ce que le portefeuille rationne
+ * maintenant, mieux et plus simplement. Consulter ne coûte rien à servir —
+ * les fiches sont en cache — donc consulter ne coûte rien. Proposer appelle
+ * l'API, donc proposer coûte un crédit. La règle tient en une phrase.
  *
  * Rien de ce qui se passe ici n'alimente le classement, les statistiques ni
  * les médailles : un abonnement ne doit jamais acheter une place au
  * classement. C'est du contenu, pas un avantage.
- *
- * Ce sont les parties d'ENTRAÎNEMENT du forfait premium, et elles sont
- * comptées : quatre par jour, en plus de la partie du jour. Voir
- * training.js — la règle vit là-bas, pas ici.
  */
-
-const FREE_ARCHIVE_DAYS = 3;
 
 /* -------------------------------------------------------------- *
  *  Helpers
  * -------------------------------------------------------------- */
-
-/** Nombre de journées écoulées depuis `date` (0 = hier). */
-function daysBack(date) {
-  return db
-    .prepare('SELECT COUNT(*) AS n FROM daily_words WHERE date < ? AND date >= ?')
-    .get(todayUtc(), date).n - 1;
-}
-
-/**
- * La journée est-elle CONSULTABLE par ce compte ?
- * Trois jours d'aperçu gratuit, tout l'historique pour les abonnés.
- * Consulter ne coûte rien : les fiches des joueurs sont en cache.
- */
-function canAccess(user, date) {
-  return Boolean(user.is_premium) || daysBack(date) < FREE_ARCHIVE_DAYS;
-}
-
-/**
- * La journée est-elle JOUABLE par ce compte ?
- *
- * Réservé aux abonnés, sans exception. Chaque proposition part vers l'API
- * Claude et coûte quelques centimes : ouvrir le rejeu à tous multiplierait
- * la facture par le nombre de journées archivées, sans contrepartie. La
- * partie du jour, elle, reste gratuite pour tout le monde — c'est le jeu.
- */
-function canPlay(user) {
-  return Boolean(user.is_premium);
-}
 
 function archiveGuesses(userId, date) {
   return db
@@ -118,7 +95,7 @@ function validDate(date) {
  *  GET /api/archive — la liste des journées
  * -------------------------------------------------------------- */
 
-archiveRouter.get('/archive', requireAuth, (req, res) => {
+archiveRouter.get('/archive', requirePaidAccess, (req, res) => {
   const isPremium = Boolean(req.user.is_premium);
 
   const rows = db
@@ -132,44 +109,44 @@ archiveRouter.get('/archive', requireAuth, (req, res) => {
     )
     .all(req.user.id, todayUtc());
 
-  const days = rows.map((row, i) => {
-    const locked = !isPremium && i >= FREE_ARCHIVE_DAYS;
+  const days = rows.map((row) => {
     const played = Boolean(row.outcome);
-    const replay = locked ? null : archiveResult(req.user.id, row.date);
-    const revealed = !locked && (played || Boolean(replay));
+    const replay = archiveResult(req.user.id, row.date);
 
     return {
       date: row.date,
       number: puzzleNumber(row.date),
-      locked,
+      // Plus rien n'est verrouillé : tout abonné voit tout l'historique. Le
+      // champ reste dans la réponse le temps que les écrans s'en détachent —
+      // le retirer d'un coup ferait disparaître des journées côté client.
+      locked: false,
       // Le nom n'est montré que s'il le connaît déjà : sinon la journée
       // resterait à jouer et l'afficher la gâcherait.
-      word: revealed ? row.word : null,
+      word: played || replay ? row.word : null,
       played,
       result: played
         ? { attempts: row.attempts, seconds: row.seconds, score: row.score, outcome: row.outcome }
         : null,
-      // Rejouable = abonne ET jamais jouee ce jour-la. Le rejeu appelle
-      // l'API a chaque proposition : il reste reserve aux abonnes.
-      replayable: isPremium && !played,
+      // Rejouable = jamais jouée ce jour-là. Ce n'est plus une question de
+      // forfait mais de portefeuille, et le portefeuille est annoncé à part.
+      replayable: !played,
+      // Cette journée est-elle déjà payée ? Une partie entamée puis
+      // interrompue ne se repaie pas, et l'écran doit pouvoir le dire.
+      paid: alreadyPaid(req.user.id, row.date ? refArchive(row.date) : ''),
       replay: replay
         ? { attempts: replay.attempts, seconds: replay.seconds, outcome: replay.outcome }
         : null,
-      inProgress:
-        !locked &&
-        !replay &&
-        archiveGuesses(req.user.id, row.date).length > 0,
+      inProgress: !replay && archiveGuesses(req.user.id, row.date).length > 0,
     };
   });
 
   res.json({
     isPremium,
-    freeDays: FREE_ARCHIVE_DAYS,
     total: days.length,
     days,
-    // Le client doit pouvoir dire « il te reste 2 parties » AVANT le clic,
+    // Le client doit pouvoir dire « il te reste 12 parties » AVANT le clic,
     // plutôt que d'ouvrir une journée qui refusera la première proposition.
-    training: trainingQuota(req.user.id),
+    credits: creditSummary(req.user.id),
   });
 });
 
@@ -177,16 +154,12 @@ archiveRouter.get('/archive', requireAuth, (req, res) => {
  *  GET /api/archive/:date — l'état d'une journée
  * -------------------------------------------------------------- */
 
-archiveRouter.get('/archive/:date', requireAuth, async (req, res) => {
+archiveRouter.get('/archive/:date', requirePaidAccess, async (req, res) => {
   const date = String(req.params.date || '');
   if (!validDate(date)) return res.status(400).json({ error: 'Date invalide.' });
 
   const row = db.prepare('SELECT * FROM daily_words WHERE date = ?').get(date);
   if (!row) return res.status(404).json({ error: 'Aucune partie ce jour-là.' });
-
-  if (!canAccess(req.user, date)) {
-    return res.status(402).json({ error: 'Cette journée fait partie des archives premium.' });
-  }
 
   const result = archiveResult(req.user.id, date);
   const reveal = mayReveal(req.user.id, date);
@@ -199,13 +172,16 @@ archiveRouter.get('/archive/:date', requireAuth, async (req, res) => {
     difficulty: row.difficulty,
     category: row.category || null,
     maxAttempts: attemptsFor(req.user),
-    // Le client doit savoir s'il peut jouer, pour proposer l'abonnement
-    // plutot qu'un champ de saisie qui renverrait une erreur.
-    canPlay: canPlay(req.user),
-    training: trainingQuota(req.user.id),
-    // Une journée déjà entamée ne consomme plus de crédit : le bandeau de
-    // quota doit le dire, sinon un joueur à zéro croirait sa partie perdue.
-    started: trainingStarted(req.user.id, date),
+    // Le client doit savoir s'il peut jouer, pour proposer la recharge
+    // plutôt qu'un champ de saisie qui renverrait une erreur. Une journée
+    // déjà entamée reste jouable même à zéro crédit : elle est payée.
+    canPlay:
+      alreadyPaid(req.user.id, refArchive(date)) ||
+      creditSummary(req.user.id).balance >= config.credits.costSolo,
+    credits: creditSummary(req.user.id),
+    // Une journée déjà entamée ne consomme plus de crédit : le bandeau doit
+    // le dire, sinon un joueur à zéro croirait sa partie perdue.
+    paid: alreadyPaid(req.user.id, refArchive(date)),
     guesses: archiveGuesses(req.user.id, date),
     result,
     playedForReal: playedForReal(req.user.id, date),
@@ -239,7 +215,7 @@ function throttlePerSecond(req, res, next) {
 
 archiveRouter.post(
   '/archive/:date/guess',
-  requireAuth,
+  requirePaidAccess,
   replayLimiter,
   throttlePerSecond,
   async (req, res) => {
@@ -249,11 +225,6 @@ archiveRouter.post(
     const day = db.prepare('SELECT * FROM daily_words WHERE date = ?').get(date);
     if (!day) return res.status(404).json({ error: 'Aucune partie ce jour-là.' });
 
-    if (!canPlay(req.user)) {
-      return res
-        .status(402)
-        .json({ error: 'Rejouer les journées passées est réservé aux abonnés premium.' });
-    }
     if (playedForReal(req.user.id, date)) {
       return res.status(409).json({ error: 'Tu as déjà joué cette journée le jour même.' });
     }
@@ -269,19 +240,23 @@ archiveRouter.post(
       .all(req.user.id, date);
 
     /*
-     * Quota d'entraînement — vérifié uniquement à la PREMIÈRE proposition
-     * d'une journée. Une partie commencée se termine toujours : couper un
-     * joueur au dixième essai parce que minuit est passé serait une
-     * punition, pas une limite.
+     * Le péage, exactement comme en solo : un crédit par journée rejouée,
+     * prélevé à la première proposition et à elle seule. Une partie
+     * commencée se termine toujours, même si le portefeuille s'est vidé
+     * entre-temps — couper un joueur au dixième essai d'une partie qu'il a
+     * payée serait une punition, pas une limite.
      */
-    if (previous.length === 0) {
-      const quota = trainingQuota(req.user.id);
-      if (quota.remaining <= 0) {
-        return res.status(429).json({
-          error: `Tu as utilisé tes ${quota.max} parties d'entraînement du jour. La partie du jour, elle, reste ouverte — et tout se remet à zéro à minuit.`,
-          quota,
-        });
-      }
+    const ref = refArchive(date);
+    const premiereProposition = !alreadyPaid(req.user.id, ref);
+    const paiement = spendOnce(req.user.id, config.credits.costSolo, 'archive', ref);
+
+    if (!paiement.ok) {
+      return res.status(402).json({
+        error:
+          'Plus de crédits. Ton stock se recharge à ta prochaine échéance — ou passe à l’Illimité pour en avoir davantage.',
+        needsCredits: true,
+        credits: creditSummary(req.user.id),
+      });
     }
 
     const cap = attemptsFor(req.user);
@@ -306,8 +281,8 @@ archiveRouter.post(
     const sheet = await describePlayer(day.word);
 
     // Même règle qu'en solo : on refuse plutôt que d'inventer un score. Rien
-    // n'est enregistré, donc la partie d'entraînement n'est pas entamée et le
-    // crédit du jour n'est pas consommé.
+    // n'est enregistré, et si la panne tombe sur la première proposition, le
+    // crédit est rendu — la partie n'a pas eu lieu, elle n'est pas due.
     let evaluation;
     try {
       evaluation = await evaluateProximity(
@@ -318,6 +293,9 @@ archiveRouter.post(
       );
     } catch (err) {
       if (err.name !== 'EvaluateurIndisponible') throw err;
+      if (premiereProposition) {
+        refund(req.user.id, paiement.cost, 'remboursement-evaluateur', ref);
+      }
       return res.status(503).json({ error: err.message, retryable: true });
     }
     const found = normalized === normalizeWord(day.word);
@@ -343,9 +321,9 @@ archiveRouter.post(
       source: evaluation.source,
     };
 
-    // Le crédit vient d'être consommé : on renvoie le compte à jour plutôt
+    // Le crédit vient d'être consommé : on renvoie le solde à jour plutôt
     // que de laisser le client le deviner.
-    if (attempt === 1) payload.training = trainingQuota(req.user.id);
+    if (attempt === 1) payload.credits = creditSummary(req.user.id);
 
     // Fin de partie : trouvé, ou tentatives épuisées.
     if (found || remaining === 0) {
@@ -372,18 +350,13 @@ archiveRouter.post(
  *  POST /api/archive/:date/surrender — abandonner et voir la réponse
  * -------------------------------------------------------------- */
 
-archiveRouter.post('/archive/:date/surrender', requireAuth, async (req, res) => {
+archiveRouter.post('/archive/:date/surrender', requirePaidAccess, async (req, res) => {
   const date = String(req.params.date || '');
   if (!validDate(date)) return res.status(400).json({ error: 'Date invalide.' });
 
   const day = db.prepare('SELECT * FROM daily_words WHERE date = ?').get(date);
   if (!day) return res.status(404).json({ error: 'Aucune partie ce jour-là.' });
 
-  if (!canPlay(req.user)) {
-    return res
-      .status(402)
-      .json({ error: 'Rejouer les journées passées est réservé aux abonnés premium.' });
-  }
   if (archiveResult(req.user.id, date)) {
     return res.status(409).json({ error: 'Cette journée est déjà terminée.' });
   }
@@ -395,16 +368,19 @@ archiveRouter.post('/archive/:date/surrender', requireAuth, async (req, res) => 
   /*
    * Abandonner une journée jamais commencée révèle la réponse sans avoir
    * proposé quoi que ce soit — et la fiche du joueur, si elle n'est pas
-   * encore en cache, coûte un appel. Ça reste une partie : ça se compte.
+   * encore en cache, coûte un appel. Ça reste une partie : ça se paie.
+   *
+   * `spendOnce` ne prélève rien si la journée a déjà été payée par une
+   * première proposition : renoncer en cours de route ne coûte pas un
+   * second crédit.
    */
-  if (attempts === 0) {
-    const quota = trainingQuota(req.user.id);
-    if (quota.remaining <= 0) {
-      return res.status(429).json({
-        error: `Tu as utilisé tes ${quota.max} parties d'entraînement du jour. Tout se remet à zéro à minuit.`,
-        quota,
-      });
-    }
+  const paiement = spendOnce(req.user.id, config.credits.costSolo, 'archive', refArchive(date));
+  if (!paiement.ok) {
+    return res.status(402).json({
+      error: 'Plus de crédits — même pour voir la réponse. Ton stock se recharge à ta prochaine échéance.',
+      needsCredits: true,
+      credits: creditSummary(req.user.id),
+    });
   }
 
   db.prepare(
@@ -416,6 +392,7 @@ archiveRouter.post('/archive/:date/surrender', requireAuth, async (req, res) => 
     word: day.word,
     description: (await describePlayer(day.word)).text,
     result: { attempts, outcome: 'surrendered' },
+    credits: creditSummary(req.user.id),
   });
 });
 
@@ -423,18 +400,41 @@ archiveRouter.post('/archive/:date/surrender', requireAuth, async (req, res) => 
  *  DELETE /api/archive/:date/replay — recommencer une journée
  * -------------------------------------------------------------- */
 
-archiveRouter.delete('/archive/:date/replay', requireAuth, (req, res) => {
+/*
+ * Recommencer coûte un crédit, et il est prélevé ICI, tout de suite.
+ *
+ * C'est la faille que cette route ouvrirait sinon, et elle est béante :
+ * une journée déjà payée le reste (`alreadyPaid` lit la référence, pas les
+ * propositions). Effacer ses propositions puis rejouer aurait donc rendu la
+ * journée gratuite — indéfiniment. Un joueur aurait pu vivre toute l'année
+ * sur un seul crédit en recommençant la même journée.
+ *
+ * Le débit est donc immédiat et distinct : la première proposition qui
+ * suivra retrouvera la journée payée et ne prélèvera rien de plus. Une
+ * partie recommencée est une partie de plus, elle se paie comme telle.
+ */
+archiveRouter.delete('/archive/:date/replay', requirePaidAccess, (req, res) => {
   const date = String(req.params.date || '');
   if (!validDate(date)) return res.status(400).json({ error: 'Date invalide.' });
 
-  if (!canPlay(req.user)) {
-    return res
-      .status(402)
-      .json({ error: 'Rejouer les journées passées est réservé aux abonnés premium.' });
+  // Rien à recommencer : ni propositions, ni résultat. On ne facture pas
+  // l'effacement de ce qui n'existe pas.
+  const entamee =
+    archiveGuesses(req.user.id, date).length > 0 || Boolean(archiveResult(req.user.id, date));
+
+  if (entamee) {
+    const paiement = spend(req.user.id, config.credits.costSolo, 'archive-recommence', refArchive(date));
+    if (!paiement.ok) {
+      return res.status(402).json({
+        error: 'Recommencer cette journée coûte un crédit, et il ne t’en reste plus.',
+        needsCredits: true,
+        credits: creditSummary(req.user.id),
+      });
+    }
   }
 
   db.prepare('DELETE FROM archive_guesses WHERE user_id = ? AND date = ?').run(req.user.id, date);
   db.prepare('DELETE FROM archive_results WHERE user_id = ? AND date = ?').run(req.user.id, date);
 
-  res.json({ ok: true });
+  res.json({ ok: true, credits: creditSummary(req.user.id) });
 });

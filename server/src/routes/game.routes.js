@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { db } from '../db.js';
-import { requireAuth } from '../auth.js';
+import { requireAuth, requirePaidAccess } from '../auth.js';
 import { config, attemptsFor } from '../config.js';
 import {
   evaluateProximity,
@@ -16,7 +16,10 @@ import { soloScore, recordSoloWin, readStats, rankFor } from '../scoring.js';
 import { evaluateSolo, listFor } from '../achievements.js';
 import { PITCH_THEMES, DEFAULT_THEME, findTheme, canUseTheme } from '../themes.js';
 import { duelQuota } from '../duels.js';
-import { trainingQuota } from '../training.js';
+import { alreadyPaid, creditSummary, refund, spendOnce } from '../credits.js';
+
+/** Référence du débit d'une partie du jour. Une par joueur et par journée. */
+const refSolo = (date) => `solo:${date}`;
 
 export const gameRouter = Router();
 
@@ -65,32 +68,6 @@ function resultRow(userId, date) {
   return row ? { ...row } : null;
 }
 
-/**
- * Rouvre la partie du jour d'un joueur qui vient de s'abonner.
- *
- * Sans ça, l'abonnement pris depuis la fenêtre « chances épuisées » ne
- * servirait à rien avant le lendemain : on vendrait cinquante chances pour
- * en livrer zéro. Seule une partie perdue faute de chances est concernée —
- * un abandon reste un abandon, une victoire reste acquise.
- */
-function reopenIfUpgraded(user, date) {
-  if (!user.is_premium) return;
-  const result = db
-    .prepare("SELECT 1 FROM daily_results WHERE user_id = ? AND date = ? AND outcome = 'exhausted'")
-    .get(user.id, date);
-  if (!result) return;
-
-  const used = db
-    .prepare('SELECT COUNT(*) AS n FROM guesses WHERE user_id = ? AND date = ?')
-    .get(user.id, date).n;
-  if (used >= attemptsFor(user)) return;
-
-  db.prepare("DELETE FROM daily_results WHERE user_id = ? AND date = ? AND outcome = 'exhausted'").run(
-    user.id,
-    date
-  );
-}
-
 function elapsedSeconds(userId, date) {
   const first = db
     .prepare('SELECT created_at FROM guesses WHERE user_id = ? AND date = ? ORDER BY id ASC LIMIT 1')
@@ -104,9 +81,18 @@ function elapsedSeconds(userId, date) {
  *  GET /api/daily-word — indices + progression du joueur
  * -------------------------------------------------------------- */
 
-gameRouter.get('/daily-word', requireAuth, async (req, res) => {
+/*
+ * Les trois routes qui font jouer — lire la partie du jour, proposer,
+ * abandonner — exigent un abonnement. Ce sont elles qui appellent l'API
+ * Claude, et donc elles qui coûtent.
+ *
+ * `/daily-word` est gardée au même titre que `/guess` : elle livre les
+ * indices de la journée (longueur, difficulté, catégorie), c'est-à-dire le
+ * contenu du jour. La laisser ouverte reviendrait à vendre l'entrée d'une
+ * salle dont la porte reste entrebâillée.
+ */
+gameRouter.get('/daily-word', requirePaidAccess, async (req, res) => {
   const date = todayUtc();
-  reopenIfUpgraded(req.user, date);
 
   const puzzle = publicDailyWord(date);
   const result = resultRow(req.user.id, date);
@@ -122,10 +108,13 @@ gameRouter.get('/daily-word', requireAuth, async (req, res) => {
     maxAttempts: cap,
     remaining: Math.max(0, cap - guesses.length),
     isPremium: Boolean(req.user.is_premium),
-    premiumAttempts: config.game.maxAttemptsPremium,
-    // Fin de partie : c'est là qu'on saura quoi proposer — les parties
-    // d'entraînement qui restent à un abonné, l'abonnement aux autres.
-    training: trainingQuota(req.user.id),
+    // Le portefeuille voyage avec la partie : l'écran doit pouvoir dire « il
+    // te reste 12 parties » sans un second aller-retour, et surtout annoncer
+    // le prix AVANT la première proposition.
+    credits: creditSummary(req.user.id),
+    // Une partie déjà entamée ne sera pas redébitée : le bandeau doit le
+    // dire, sinon un joueur à zéro crédit croirait sa partie perdue.
+    paid: alreadyPaid(req.user.id, refSolo(date)),
     solved: Boolean(result && result.outcome === 'found'),
     surrendered: Boolean(result && result.outcome === 'surrendered'),
     result: result
@@ -146,12 +135,11 @@ gameRouter.get('/daily-word', requireAuth, async (req, res) => {
  *  POST /api/guess — proposition d'un mot
  * -------------------------------------------------------------- */
 
-gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (req, res) => {
+gameRouter.post('/guess', requirePaidAccess, guessLimiter, throttlePerSecond, async (req, res) => {
   const date = todayUtc();
   const check = validateGuess(req.body?.word);
   if (!check.ok) return res.status(400).json({ error: check.error });
 
-  reopenIfUpgraded(req.user, date);
   const cap = attemptsFor(req.user);
 
   if (resultRow(req.user.id, date)) {
@@ -163,6 +151,38 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
     .get(req.user.id, date).n;
   if (used >= cap) {
     return res.status(409).json({ error: 'Tu as épuisé tes chances du jour.' });
+  }
+
+  /*
+   * Le péage.
+   *
+   * Il est franchi ici, à la première proposition, et non à l'ouverture de
+   * l'écran : regarder la grille du jour ne coûte rien à servir, alors elle
+   * ne coûte rien à consulter. C'est proposer qui appelle l'API et qui se
+   * paie.
+   *
+   * `spendOnce` porte la référence de la journée : les quatorze propositions
+   * suivantes retrouvent le débit déjà passé et ne prélèvent rien. Une partie
+   * se paie une fois, même si on la reprend le lendemain matin après une
+   * déconnexion.
+   *
+   * Le débit précède volontairement l'appel à Claude. L'ordre inverse —
+   * évaluer puis facturer — laisserait deux onglets ouverts en même temps
+   * dépenser deux fois le dernier crédit, et nous aurions payé les deux
+   * appels. Ce qui suit se charge de rendre le crédit si l'évaluation
+   * n'aboutit pas.
+   */
+  const ref = refSolo(date);
+  const premiereProposition = !alreadyPaid(req.user.id, ref);
+  const paiement = spendOnce(req.user.id, config.credits.costSolo, 'solo', ref);
+
+  if (!paiement.ok) {
+    return res.status(402).json({
+      error:
+        'Plus de crédits. Ton stock se recharge à ta prochaine échéance — ou passe à l’Illimité pour en avoir davantage.',
+      needsCredits: true,
+      credits: creditSummary(req.user.id),
+    });
   }
 
   const daily = getDailyWord(date);
@@ -201,6 +221,21 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
     evaluation = await evaluateProximity(check.word, daily.word, 'fr', identity);
   } catch (err) {
     if (err.name !== 'EvaluateurIndisponible') throw err;
+
+    /*
+     * La panne tombe sur la PREMIÈRE proposition : la partie n'a pas
+     * commencé, donc elle n'est pas due. Le remboursement annule le débit —
+     * la référence retombe à zéro, et la journée redevient payante au
+     * prochain essai (voir alreadyPaid, qui lit le solde et non les lignes).
+     *
+     * Aux propositions suivantes il n'y a rien à rendre : la partie a bien
+     * eu lieu, c'est cette tentative-là qui n'a pas abouti, et elle n'a
+     * consommé aucune chance.
+     */
+    if (premiereProposition) {
+      refund(req.user.id, paiement.cost, 'remboursement-evaluateur', ref);
+    }
+
     return res.status(503).json({ error: err.message, retryable: true });
   }
   const found = normalized === normalizeWord(daily.word);
@@ -238,11 +273,19 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
     ).run(req.user.id, date, attempt, seconds);
 
     payload.exhausted = true;
-    // Le client n'a pas à deviner s'il faut proposer l'abonnement : c'est le
-    // serveur qui connaît le forfait du joueur et la taille de l'offre.
-    payload.upsell = req.user.is_premium
-      ? null
-      : { freeAttempts: cap, premiumAttempts: config.game.maxAttemptsPremium };
+    /*
+     * Ce qu'on propose à la fin d'une partie perdue a changé de nature.
+     *
+     * Avant, on vendait des chances : « quinze aujourd'hui, cinquante avec
+     * l'abonnement ». Ce n'est plus vrai — quinze pour tout le monde. Ce
+     * qu'on peut offrir maintenant, c'est de RECOMMENCER ailleurs : une
+     * journée d'archive, tout de suite, contre un crédit. Le client décide
+     * quoi en faire selon ce qui reste au portefeuille.
+     */
+    payload.upsell = {
+      canReplay: creditSummary(req.user.id).balance >= config.credits.costSolo,
+      plan: req.user.subscription_plan || null,
+    };
     payload.result = {
       attempts: attempt,
       seconds,
@@ -253,7 +296,7 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
       puzzleNumber: puzzleNumber(date),
     };
     payload.description = (await describePlayer(daily.word)).text;
-    payload.training = trainingQuota(req.user.id);
+    payload.credits = creditSummary(req.user.id);
     return res.json(payload);
   }
 
@@ -266,29 +309,44 @@ gameRouter.post('/guess', requireAuth, guessLimiter, throttlePerSecond, async (r
        VALUES (?, ?, ?, ?, ?, 0, 'found')`
     ).run(req.user.id, date, attempt, seconds, score);
 
-    recordSoloWin(req.user.id, { date, attempts: attempt, seconds, score });
-    const unlocked = evaluateSolo(req.user.id, { attempts: attempt, seconds, score });
+    const { ranked } = recordSoloWin(req.user.id, { date, attempts: attempt, seconds, score });
+
+    /*
+     * Hors classement : aucune médaille non plus.
+     *
+     * Les deux vont ensemble. Une médaille est une distinction, et distinguer
+     * une partie qui ne compte pas serait exactement le contournement qu'on
+     * vient de fermer côté score — il suffirait de rejouer jusqu'à décrocher
+     * la bonne série.
+     */
+    const unlocked = ranked
+      ? evaluateSolo(req.user.id, { attempts: attempt, seconds, score })
+      : [];
     const stats = readStats(req.user.id);
 
     payload.result = {
       attempts: attempt,
       seconds,
+      // Le score reste affiché même hors classement : le joueur a le droit
+      // de savoir comment il a joué. C'est le tableau qui l'ignore, pas lui.
       score,
+      ranked,
       word: daily.word,
       puzzleNumber: puzzleNumber(date),
     };
+    payload.ranked = ranked;
     payload.description = (await describePlayer(daily.word)).text;
     payload.unlocked = unlocked;
     payload.stats = stats;
     payload.rank = rankFor(stats);
-    payload.training = trainingQuota(req.user.id);
+    payload.credits = creditSummary(req.user.id);
   }
 
   res.json(payload);
 });
 
 /* -------------------------------------------------------------- *
- *  GET /api/duel/quota — duels restants aujourd'hui
+ *  GET /api/duel/quota — ce qu'un duel va coûter, et ce qui reste
  *
  *  Le refus définitif se joue sur la socket, au moment de lancer la
  *  partie. Cette route existe pour que l'écran de duel puisse le dire
@@ -303,7 +361,7 @@ gameRouter.get('/duel/quota', requireAuth, (req, res) => {
  *  POST /api/surrender — abandonner la partie du jour
  * -------------------------------------------------------------- */
 
-gameRouter.post('/surrender', requireAuth, async (req, res) => {
+gameRouter.post('/surrender', requirePaidAccess, async (req, res) => {
   const date = todayUtc();
   if (resultRow(req.user.id, date)) {
     return res.status(409).json({ error: 'Partie déjà terminée.' });
@@ -312,6 +370,25 @@ gameRouter.post('/surrender', requireAuth, async (req, res) => {
   const attempts = db
     .prepare('SELECT COUNT(*) AS n FROM guesses WHERE user_id = ? AND date = ?')
     .get(req.user.id, date).n;
+
+  /*
+   * Abandonner sans avoir rien proposé révèle quand même la réponse et la
+   * fiche du joueur — qui coûte un appel si elle n'est pas encore en cache.
+   * C'est une partie consommée, elle se paie comme les autres.
+   *
+   * Sans ce débit, la porte de sortie devenait la porte d'entrée : ouvrir,
+   * abandonner, lire la réponse, recommencer demain, sans jamais dépenser un
+   * crédit. `spendOnce` reconnaît la partie déjà payée si le joueur avait
+   * proposé quelque chose avant de renoncer — on ne facture pas deux fois.
+   */
+  const paiement = spendOnce(req.user.id, config.credits.costSolo, 'solo', refSolo(date));
+  if (!paiement.ok) {
+    return res.status(402).json({
+      error: 'Plus de crédits — même pour voir la réponse. Ton stock se recharge à ta prochaine échéance.',
+      needsCredits: true,
+      credits: creditSummary(req.user.id),
+    });
+  }
 
   db.prepare(
     `INSERT OR REPLACE INTO daily_results (user_id, date, attempts, seconds, score, surrendered, outcome)
@@ -326,7 +403,7 @@ gameRouter.post('/surrender', requireAuth, async (req, res) => {
     seconds: elapsedSeconds(req.user.id, date),
     score: 0,
     description: (await describePlayer(daily.word)).text,
-    training: trainingQuota(req.user.id),
+    credits: creditSummary(req.user.id),
   });
 });
 

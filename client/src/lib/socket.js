@@ -19,6 +19,22 @@ export function getSocket() {
       transports: ['websocket', 'polling'],
       autoConnect: true,
     });
+
+    /*
+     * Le mur de paiement se dresse dès la poignée de main : le serveur
+     * refuse la connexion à un compte sans abonnement, plutôt qu'événement
+     * par événement.
+     *
+     * Sans ce relais, l'écran de duel resterait indéfiniment sur « recherche
+     * d'un adversaire » — la connexion échoue en silence, et rien à l'écran
+     * ne dit pourquoi. On prévient l'application, qui relit le profil et
+     * renvoie vers l'offre.
+     */
+    socket.on('connect_error', (err) => {
+      if (err?.data?.needsSubscription) {
+        window.dispatchEvent(new Event('footix:needs-subscription'));
+      }
+    });
   }
 
   return socket;

@@ -1,35 +1,65 @@
 import { db } from './db.js';
 import { config } from './config.js';
 import { getSubscription } from './paypal.js';
+import { balanceOf, creditSummary, grantOnPlanChange, rechargeOnRenewal } from './credits.js';
 
 /**
- * État de l'abonnement premium.
+ * État de l'abonnement.
  *
- * Principe : `premium_until` est la date de fin des droits, `is_premium` le
- * drapeau effectif. Une résiliation ne coupe rien sur le champ — le joueur
- * a payé sa période, il la termine. C'est `expireIfNeeded` qui retire les
- * droits, paresseusement, à la première requête suivant l'échéance.
+ * Principe : `premium_until` est la date de fin des droits, `is_subscriber`
+ * et `is_premium` les drapeaux effectifs. Une résiliation ne coupe rien sur
+ * le champ — le joueur a payé sa période, il la termine. C'est
+ * `expireIfNeeded` qui retire les droits, paresseusement, à la première
+ * requête suivant l'échéance.
  */
 
 /** Quelques jours de battement : un prélèvement PayPal peut prendre du retard. */
 const GRACE_DAYS = 3;
 
+/*
+ * Les deux forfaits, du moins cher au plus cher.
+ *
+ * L'ordre compte : la page d'offre les affiche dans cet ordre, et c'est
+ * l'ordre de lecture naturel — on entre par le prix d'appel.
+ *
+ * `premium` distingue le forfait qui ouvre tout le reste (50 chances, 5
+ * parties, 5 duels, sans publicité, archives complètes). Il n'y a qu'une
+ * seule définition de cette frontière dans le code, et c'est celle-ci :
+ * ailleurs on lit `is_premium`, calculé à partir d'ici.
+ */
 export const PLANS = {
-  monthly: {
-    key: 'monthly',
-    label: 'Mensuel',
-    price: config.premium.monthlyPrice,
+  access: {
+    key: 'access',
+    label: 'Accès',
+    price: config.premium.accessPrice,
     period: 'par mois',
-    planId: () => config.paypal.plans.monthly,
+    credits: config.credits.perPlan.access,
+    premium: false,
+    planId: () => config.paypal.plans.access,
   },
-  yearly: {
-    key: 'yearly',
-    label: 'Annuel',
-    price: config.premium.yearlyPrice,
-    period: 'par an',
-    planId: () => config.paypal.plans.yearly,
+  unlimited: {
+    key: 'unlimited',
+    label: 'Illimité',
+    price: config.premium.unlimitedPrice,
+    period: 'par mois',
+    credits: config.credits.perPlan.unlimited,
+    premium: true,
+    planId: () => config.paypal.plans.unlimited,
   },
 };
+
+/**
+ * Ce forfait ouvre-t-il les droits du haut de gamme ?
+ *
+ * Tolérant par choix. Une clé inconnue — une ancienne formule oubliée dans
+ * un webhook en retard, un compte réparé à la main — rend `true` : entre
+ * rétrograder un abonné à tort et offrir quelques chances de trop, le
+ * second est de très loin le moins grave. Seul le forfait Accès, nommément
+ * reconnu, limite les droits.
+ */
+export function planIsPremium(planKey) {
+  return PLANS[planKey]?.premium ?? planKey !== PLANS.access.key;
+}
 
 /** Fin des droits déduite de l'abonnement PayPal, marge comprise. */
 function computePremiumUntil(subscription) {
@@ -42,52 +72,111 @@ function computePremiumUntil(subscription) {
 }
 
 /**
- * Retire les droits premium si l'échéance est passée.
- * Appelé à chaque lecture du compte : c'est le seul endroit où le premium
+ * Retire les droits si l'échéance est passée.
+ *
+ * Appelé à chaque lecture du compte : c'est le seul endroit où l'abonnement
  * s'éteint, il n'y a donc pas de tâche planifiée à maintenir.
+ *
+ * Les deux drapeaux tombent ensemble. Ne retirer que `is_premium` laisserait
+ * la porte du jeu ouverte à un abonnement expiré depuis six mois — le mur de
+ * paiement ne tient que si l'expiration le referme.
  */
 export function expireIfNeeded(user) {
-  if (!user || !user.is_premium) return user;
-  if (!user.premium_until) return user; // premium accordé à la main, sans échéance
+  if (!user) return user;
+  if (!user.is_premium && !user.is_subscriber) return user;
+  if (!user.premium_until) return user; // accordé à la main, sans échéance
   if (new Date(user.premium_until) > new Date()) return user;
 
-  db.prepare('UPDATE users SET is_premium = 0 WHERE id = ?').run(user.id);
-  return { ...user, is_premium: 0 };
+  db.prepare('UPDATE users SET is_premium = 0, is_subscriber = 0 WHERE id = ?').run(user.id);
+  return { ...user, is_premium: 0, is_subscriber: 0 };
 }
 
-/** Applique un abonnement PayPal à un compte. */
-export function applySubscription(userId, subscription, planKey = null) {
-  const status = subscription?.status || 'UNKNOWN';
-  const until = computePremiumUntil(subscription);
-  const active = status === 'ACTIVE' || status === 'APPROVED';
-
+/**
+ * Écrit les droits d'un compte à partir d'un abonnement.
+ *
+ * Mise en commun délibérée entre PayPal et Stripe : la règle « payé, donc
+ * on entre — et forfait Illimité, donc on a tout » ne doit exister qu'à un
+ * seul endroit. Elle avait déjà divergé une fois entre les deux
+ * encaisseurs, et c'est le genre d'écart qu'on ne découvre qu'en lisant les
+ * réclamations d'un joueur.
+ *
+ * `planKey` peut être nul (un webhook de renouvellement ne rappelle pas
+ * toujours la formule) : on relit alors celle déjà enregistrée, jamais on ne
+ * devine. C'est ce qui évite de rétrograder un abonné au passage d'un
+ * simple événement de paiement.
+ */
+function writeRights(userId, { provider, subscriptionId, status, planKey, until, active }) {
   const current = db
-    .prepare('SELECT premium_until FROM users WHERE id = ?')
+    .prepare('SELECT premium_until, subscription_plan FROM users WHERE id = ?')
     .get(userId);
 
+  // Photographiés AVANT l'écriture : ce sont eux qui diront, après, si une
+  // période vient d'être payée et si la formule a changé. Relus après coup,
+  // ils auraient déjà la nouvelle valeur et ne compareraient plus rien.
+  const echeanceAvant = current?.premium_until || null;
+  const planAvant = current?.subscription_plan || null;
+
   // On ne raccourcit jamais une échéance déjà acquise : à la résiliation,
-  // PayPal cesse de renvoyer next_billing_time et `until` devient null.
+  // l'encaisseur cesse d'annoncer la prochaine, et `until` devient null.
   const nextUntil = until || current?.premium_until || null;
+  const plan = planKey || current?.subscription_plan || null;
+
+  // Les droits courent tant que la période payée n'est pas écoulée, même si
+  // l'abonnement n'est plus « actif » : c'est toute la différence entre
+  // résilier et être coupé.
+  const abonne = active || (nextUntil && new Date(nextUntil) > new Date()) ? 1 : 0;
+  const premium = abonne && planIsPremium(plan) ? 1 : 0;
 
   db.prepare(
     `UPDATE users
-        SET is_premium = ?,
-            subscription_provider = 'paypal',
+        SET is_subscriber = ?,
+            is_premium = ?,
+            subscription_provider = ?,
             subscription_id = ?,
             subscription_status = ?,
             subscription_plan = COALESCE(?, subscription_plan),
             premium_until = ?
       WHERE id = ?`
-  ).run(
-    active || (nextUntil && new Date(nextUntil) > new Date()) ? 1 : 0,
-    subscription?.id || null,
+  ).run(abonne, premium, provider, subscriptionId, status, planKey, nextUntil, userId);
+
+  /*
+   * Les crédits suivent le paiement, dans cet ordre précis.
+   *
+   * Le changement de formule est traité EN DERNIER et écrase donc la
+   * recharge de renouvellement si les deux tombent ensemble. C'est voulu :
+   * quelqu'un qui passe à l'Illimité le jour de son échéance doit repartir
+   * avec le stock de l'Illimité, pas avec celui qu'il vient de quitter.
+   *
+   * Les deux opérations écrivent un solde absolu et non un incrément : les
+   * enchaîner ne distribue pas deux stocks.
+   */
+  if (abonne) {
+    rechargeOnRenewal(userId, echeanceAvant);
+    if (plan !== planAvant) grantOnPlanChange(userId, planAvant);
+  }
+
+  return {
+    status,
+    premiumUntil: nextUntil,
+    plan,
+    hasAccess: Boolean(abonne),
+    isPremium: Boolean(premium),
+    credits: balanceOf(userId),
+  };
+}
+
+/** Applique un abonnement PayPal à un compte. */
+export function applySubscription(userId, subscription, planKey = null) {
+  const status = subscription?.status || 'UNKNOWN';
+
+  return writeRights(userId, {
+    provider: 'paypal',
+    subscriptionId: subscription?.id || null,
     status,
     planKey,
-    nextUntil,
-    userId
-  );
-
-  return { status, premiumUntil: nextUntil, isPremium: active };
+    until: computePremiumUntil(subscription),
+    active: status === 'ACTIVE' || status === 'APPROVED',
+  });
 }
 
 /** Recharge l'abonnement depuis PayPal et met le compte à jour. */
@@ -130,31 +219,16 @@ export function applyStripeSubscription(userId, subscription, planKey = null) {
     until = date.toISOString();
   }
 
-  const current = db.prepare('SELECT premium_until FROM users WHERE id = ?').get(userId);
-  const nextUntil = until || current?.premium_until || null;
-  const actif = STRIPE_ACTIFS.has(status);
-
-  db.prepare(
-    `UPDATE users
-        SET is_premium = ?,
-            subscription_provider = 'stripe',
-            subscription_id = ?,
-            subscription_status = ?,
-            subscription_plan = COALESCE(?, subscription_plan),
-            premium_until = ?
-      WHERE id = ?`
-  ).run(
-    actif || (nextUntil && new Date(nextUntil) > new Date()) ? 1 : 0,
-    subscription?.id || null,
-    // On note la résiliation programmée : le joueur doit voir « premium
+  return writeRights(userId, {
+    provider: 'stripe',
+    subscriptionId: subscription?.id || null,
+    // On note la résiliation programmée : le joueur doit voir « abonné
     // jusqu'au … » plutôt que « abonné ».
-    subscription?.cancel_at_period_end ? 'CANCELLED' : status.toUpperCase(),
+    status: subscription?.cancel_at_period_end ? 'CANCELLED' : status.toUpperCase(),
     planKey,
-    nextUntil,
-    userId
-  );
-
-  return { status, premiumUntil: nextUntil, isPremium: actif };
+    until,
+    active: STRIPE_ACTIFS.has(status),
+  });
 }
 
 /**
@@ -188,12 +262,20 @@ export function userIdForSubscription(subscriptionId, customId) {
 /** Résumé de l'abonnement pour le client. */
 export function billingSummary(user) {
   return {
+    // Le droit d'entrer dans le jeu — vrai avec l'un ou l'autre forfait.
+    hasAccess: Boolean(user.is_subscriber || user.is_premium),
     isPremium: Boolean(user.is_premium),
-    // Premium sans abonnement : administrateur, ou geste accordé à la main.
+    // Abonné sans abonnement : administrateur, ou geste accordé à la main.
     // Il n'y a rien à résilier et aucune échéance à afficher — le profil doit
     // le dire au lieu d'inventer une « formule mensuelle ».
-    manual: Boolean(user.is_premium) && !user.subscription_id,
+    manual: Boolean(user.is_subscriber || user.is_premium) && !user.subscription_id,
     plan: user.subscription_plan || null,
+    // Le libellé, pour que le profil dise « Illimité » et non « unlimited ».
+    planLabel: PLANS[user.subscription_plan]?.label || null,
+    // Le portefeuille voyage avec l'abonnement : c'est la même question côté
+    // joueur (« qu'est-ce que je peux faire aujourd'hui ? »), ça n'a pas à
+    // demander un second aller-retour.
+    credits: creditSummary(user.id),
     status: user.subscription_status || null,
     premiumUntil: user.premium_until || null,
     // Un abonnement résilié reste actif jusqu'à l'échéance : le client doit

@@ -122,22 +122,95 @@ function addColumn(table, column, definition) {
 
 // Issue de la partie solo : 'found' | 'surrendered' | 'exhausted'
 addColumn('daily_results', 'outcome', "TEXT NOT NULL DEFAULT 'found'");
-// Compte premium : sans publicité + accès aux archives
+// Forfait Illimité : 50 chances, 5 parties, 5 duels, sans publicité, archives
+// complètes. Le nom de la colonne est resté « premium » — le renommer aurait
+// touché trente-cinq fichiers pour ne rien changer au comportement.
 addColumn('users', 'is_premium', 'INTEGER NOT NULL DEFAULT 0');
 
 /*
- * Abonnement premium.
+ * Le droit d'entrer dans le jeu.
  *
- * `premium_until` est la date de fin des droits. Une résiliation ne coupe
- * pas l'accès immédiatement : le joueur a payé sa période, il la termine.
- * `is_premium` reste le drapeau effectif, remis à 0 automatiquement à
- * l'expiration (voir findUserById dans auth.js).
+ * Deux drapeaux, deux questions distinctes :
+ *   is_subscriber → a-t-il le droit de JOUER ? (forfait Accès ou Illimité)
+ *   is_premium    → a-t-il le forfait Illimité ?
+ *
+ * Un seul drapeau ne suffisait plus le jour où le jeu est devenu payant :
+ * `is_premium` répondait « a-t-il payé ? » ET « a-t-il tout payé ? », deux
+ * questions qui n'ont plus la même réponse depuis qu'il existe un forfait
+ * d'entrée à 2,99 €.
+ *
+ * La valeur par défaut est 0, y compris pour les comptes déjà en base : la
+ * bascule ferme la porte à tout le monde, l'abonnement la rouvre. C'était la
+ * décision — 981 comptes gratuits n'ont rapporté aucun don en plusieurs mois.
  */
-addColumn('users', 'subscription_provider', 'TEXT'); // 'paypal'
+addColumn('users', 'is_subscriber', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * Abonnement.
+ *
+ * `premium_until` est la date de fin des droits — de TOUS les droits, quel
+ * que soit le forfait. Une résiliation ne coupe pas l'accès immédiatement :
+ * le joueur a payé sa période, il la termine. `is_subscriber` et
+ * `is_premium` sont les drapeaux effectifs, remis à 0 automatiquement à
+ * l'expiration (voir expireIfNeeded, appelé par findUserById dans auth.js).
+ */
+addColumn('users', 'subscription_provider', 'TEXT'); // 'paypal' | 'stripe' | 'manuel'
 addColumn('users', 'subscription_id', 'TEXT');
 addColumn('users', 'subscription_status', 'TEXT'); // ACTIVE | CANCELLED | SUSPENDED | EXPIRED
-addColumn('users', 'subscription_plan', 'TEXT'); // 'monthly' | 'yearly'
+addColumn('users', 'subscription_plan', 'TEXT'); // 'access' | 'unlimited'
 addColumn('users', 'premium_until', 'TEXT');
+
+/*
+ * Les crédits.
+ *
+ * `credits` est le solde, `credits_renewed_at` la date du dernier
+ * rechargement et `credits_period_end` celle du prochain — ce que le joueur
+ * lit quand son solde est à zéro. Le journal `credit_events` garde la trace
+ * de chaque mouvement : sans lui, un joueur qui écrit « j'ai perdu trois
+ * crédits sans jouer » est une accusation qu'on ne peut ni vérifier ni
+ * démentir. Un compteur d'argent sans relevé n'est pas un compteur d'argent.
+ */
+addColumn('users', 'credits', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('users', 'credits_renewed_at', 'TEXT');
+addColumn('users', 'credits_period_end', 'TEXT');
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS credit_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  delta      INTEGER NOT NULL,
+  reason     TEXT NOT NULL,
+  ref        TEXT,
+  balance    INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_credit_events_user ON credit_events (user_id, id DESC);
+`);
+
+/*
+ * Reprise des abonnés d'avant la bascule tarifaire.
+ *
+ * Deux réparations, rejouées à chaque démarrage parce qu'elles énoncent des
+ * invariants et non des étapes : les rejouer ne peut rien casser, et une
+ * base restaurée depuis une sauvegarde se remet d'aplomb toute seule.
+ *
+ *   1. Un compte premium a forcément le droit d'entrer. Sans cette ligne, la
+ *      colonne `is_subscriber` naîtrait à 0 pour TOUT LE MONDE — y compris
+ *      pour ceux qui paient déjà, qui se retrouveraient devant le mur au
+ *      premier déploiement. Un abonné mis à la porte le jour où l'on
+ *      commence à vendre, ce serait la pire manière de lancer l'offre.
+ *
+ *   2. Les anciennes clés de formule ('monthly', 'yearly') désignaient le
+ *      premium complet ; elles deviennent 'unlimited'. Sans ce report, le
+ *      premier webhook de renouvellement relirait « monthly », n'y
+ *      reconnaîtrait pas le forfait Illimité, et rétrograderait au forfait
+ *      Accès un joueur qui n'a rien demandé.
+ */
+db.exec(`
+  UPDATE users SET is_subscriber = 1 WHERE is_premium = 1 AND is_subscriber = 0;
+  UPDATE users SET subscription_plan = 'unlimited'
+   WHERE subscription_plan IN ('monthly', 'yearly');
+`);
 // Thème de terrain choisi (réservé au premium au-delà du thème par défaut)
 addColumn('users', 'pitch_theme', "TEXT NOT NULL DEFAULT 'classique'");
 

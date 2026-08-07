@@ -49,7 +49,7 @@ export default function ThemePicker() {
         </h2>
         {!isPremium && (
           <Link to="/premium" className="small">
-            Débloquer les quatre décors
+            Les quatre décors avec l'Illimité
           </Link>
         )}
       </div>
@@ -65,7 +65,7 @@ export default function ThemePicker() {
               className={`theme-card${actif ? ' active' : ''}${verrouille ? ' locked' : ''}`}
               onClick={() => choisir(theme)}
               disabled={verrouille || Boolean(busy)}
-              title={verrouille ? 'Réservé au premium' : theme.hint}
+              title={verrouille ? 'Réservé à la formule Illimité' : theme.hint}
               aria-pressed={actif}
             >
               <span className="theme-preview" data-pitch-preview={theme.key} aria-hidden="true" />

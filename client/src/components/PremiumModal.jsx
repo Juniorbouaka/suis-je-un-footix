@@ -2,14 +2,12 @@ import { Link } from 'react-router-dom';
 import Icon from './Icon.jsx';
 
 /**
- * La fenêtre qui propose l'abonnement — la seule fenêtre modale du jeu.
+ * La fenêtre qui propose de monter en gamme — la seule fenêtre modale du jeu.
  *
- * L'invitation à soutenir (SupportPrompt) reste volontairement une carte
- * inline : on ne met pas un péage devant une victoire. Ici, c'est l'inverse.
- * Elle n'apparaît qu'à la fin d'une partie, au moment précis où le joueur se
- * demande ce qu'il fait ensuite — et la réponse honnête, en gratuit, est
- * « tu attends minuit ». Répondre ailleurs qu'à cet endroit, c'est ne pas
- * répondre.
+ * Elle ne s'adresse QU'À des abonnés : depuis que le jeu est payant, celui
+ * qui la voit a déjà sorti sa carte. Lui vendre « l'abonnement » serait donc
+ * absurde ; ce qu'on lui propose, c'est un stock plus grand, au moment précis
+ * où le sien vient de manquer.
  *
  * Deux règles de politesse tiennent tout l'écran : une seule fois par jour
  * (la fréquence est gérée par l'appelant), et un refus qui se dit en clair,
@@ -17,11 +15,10 @@ import Icon from './Icon.jsx';
  */
 
 const AVANTAGES = [
-  '5 parties par jour au lieu d’une',
-  '50 chances par jour au lieu de 15',
-  '5 duels par jour au lieu d’un seul',
-  'Aucune publicité',
-  'Toutes les archives, statistiques détaillées',
+  '75 parties par mois au lieu de 20',
+  'Aucune publicité, nulle part',
+  'Statistiques détaillées et historique complet',
+  'Quatre thèmes de terrain supplémentaires',
 ];
 
 export default function PremiumModal({
@@ -31,8 +28,8 @@ export default function PremiumModal({
   texte,
   avantages = AVANTAGES,
   kicker = null,
-  cta = "Découvrir l'abonnement",
-  dismiss = 'Non merci, je reviens demain',
+  cta = 'Voir les formules',
+  dismiss = 'Non merci, ça ira',
   note = null,
 }) {
   if (!open) return null;

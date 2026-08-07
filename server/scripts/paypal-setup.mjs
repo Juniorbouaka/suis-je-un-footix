@@ -29,20 +29,24 @@ if (!clientId || !clientSecret) {
   process.exit(1);
 }
 
+const MOIS = { interval_unit: 'MONTH', interval_count: 1 };
+
 const PLANS = [
   {
-    key: 'monthly',
-    env: 'PAYPAL_PLAN_MONTHLY',
-    name: 'Footix Premium — mensuel',
+    key: 'access',
+    env: 'PAYPAL_PLAN_ACCESS',
+    name: 'Footix — Accès',
+    label: '20 parties par mois',
     price: '2.99',
-    interval: { interval_unit: 'MONTH', interval_count: 1 },
+    interval: MOIS,
   },
   {
-    key: 'yearly',
-    env: 'PAYPAL_PLAN_YEARLY',
-    name: 'Footix Premium — annuel',
-    price: '19.99',
-    interval: { interval_unit: 'YEAR', interval_count: 1 },
+    key: 'unlimited',
+    env: 'PAYPAL_PLAN_UNLIMITED',
+    name: 'Footix — Illimité',
+    label: '75 parties par mois',
+    price: '9.99',
+    interval: MOIS,
   },
 ];
 
@@ -56,12 +60,14 @@ const product = await paypalRequest(
   'POST',
   '/v1/catalogs/products',
   {
-    name: 'Suis-je un footix ? — Premium',
-    description: 'Sans publicité, archives complètes, statistiques détaillées et thèmes.',
+    name: 'Suis-je un footix ?',
+    description: 'Abonnement au jeu : un stock de parties rechargé chaque mois.',
     type: 'SERVICE',
     category: 'ONLINE_GAMING',
   },
-  { 'PayPal-Request-Id': `footix-product-${environment}` }
+  // Clé de requête nouvelle : l'ancienne renverrait le produit « Premium »
+  // d'avant les crédits au lieu d'en créer un.
+  { 'PayPal-Request-Id': `footix-product-credits-${environment}` }
 );
 
 console.log(`  produit créé : ${product.id}`);
@@ -80,7 +86,7 @@ for (const plan of PLANS) {
       {
         product_id: product.id,
         name: plan.name,
-        description: `Abonnement ${plan.key === 'monthly' ? 'mensuel' : 'annuel'} au premium.`,
+        description: `Abonnement mensuel — ${plan.label}.`,
         status: 'ACTIVE',
         billing_cycles: [
           {

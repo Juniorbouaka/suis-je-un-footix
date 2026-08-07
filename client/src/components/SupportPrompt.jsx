@@ -9,8 +9,12 @@ import Icon from './Icon.jsx';
  * Tout l'enjeu est de ne pas devenir une bannière publicitaire. Quatre
  * règles s'en chargent, et elles comptent plus que le graphisme :
  *
- *   1. jamais aux abonnés premium — ils paient déjà, le leur redemander
- *      est maladroit ;
+ *   1. jamais aux abonnés — ils paient déjà, le leur redemander est
+ *      maladroit. Depuis que le jeu est payant, c'est le cas de tous ceux
+ *      qui terminent une partie : cet encart ne s'affiche donc plus en fin
+ *      de partie du tout. On le garde tel quel plutôt que de le supprimer —
+ *      le jour où une partie découverte s'ouvrira à nouveau, il reprendra
+ *      son office sans qu'on ait à le réécrire ;
  *   2. jamais à qui a déjà donné ;
  *   3. pas avant la 3e partie terminée — laisser aimer le jeu d'abord ;
  *   4. une fois par semaine au maximum, et après trois refus on espace
@@ -57,8 +61,10 @@ export function marquerDonateur() {
 }
 
 /** L'invitation a-t-elle le droit de s'afficher ? */
-function autorise({ isPremium, partiesJouees }) {
-  if (isPremium) return false;
+function autorise({ hasAccess, partiesJouees }) {
+  // L'ACCÈS, et non le forfait haut de gamme : un abonné à 2,99 € paie déjà
+  // le jeu. Lui demander un don en plus serait de la mendicité.
+  if (hasAccess) return false;
   if (partiesJouees < PARTIES_MINIMUM) return false;
 
   const etat = lire();
@@ -106,12 +112,12 @@ export default function SupportPrompt({
   // dix, ce qui est le contraire de ce qu'on veut regarder.
   force = false,
 }) {
-  const { isPremium, stats } = useAuth();
+  const { hasAccess, stats } = useAuth();
   const partiesJouees = stats?.daysCompleted ?? 0;
 
   // La décision est prise une fois, à l'initialisation : sans cela, un
   // simple re-rendu ferait réapparaître l'encart après un refus.
-  const [visible, setVisible] = useState(() => force || autorise({ isPremium, partiesJouees }));
+  const [visible, setVisible] = useState(() => force || autorise({ hasAccess, partiesJouees }));
 
   // L'affichage est mémorisé dans un effet, jamais pendant le rendu :
   // c'est lui qui fait courir le délai avant la prochaine sollicitation.

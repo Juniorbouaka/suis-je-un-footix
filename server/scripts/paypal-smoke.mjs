@@ -13,9 +13,9 @@
 import { createSubscription } from '../src/paypal.js';
 import { config } from '../src/config.js';
 
-const planId = config.paypal.plans.monthly;
+const planId = config.paypal.plans.access;
 if (!planId) {
-  console.error('\n  ⨯ PAYPAL_PLAN_MONTHLY est vide : rien à tester.\n');
+  console.error('\n  ⨯ PAYPAL_PLAN_ACCESS est vide : rien à tester.\n');
   process.exit(1);
 }
 

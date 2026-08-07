@@ -19,9 +19,17 @@ const HOSTS = {
 
 export const paypalHost = () => HOSTS[config.paypal.environment] || HOSTS.sandbox;
 
-/** PayPal est-il configuré ? Sans cela, tout le module premium reste muet. */
+/**
+ * PayPal est-il configuré ? Sans cela, tout le module d'abonnement reste muet.
+ *
+ * On exige au moins UN plan, pas les deux : si seul l'Illimité est déclaré,
+ * PayPal doit pouvoir le vendre plutôt que de disparaître entièrement. Chaque
+ * formule vérifie ensuite son propre identifiant avant d'ouvrir un paiement.
+ */
 export const paypalEnabled = Boolean(
-  config.paypal.clientId && config.paypal.clientSecret && config.paypal.plans.monthly
+  config.paypal.clientId &&
+    config.paypal.clientSecret &&
+    (config.paypal.plans.access || config.paypal.plans.unlimited)
 );
 
 /* ------------------------------------------------------------------ *
@@ -120,6 +128,38 @@ export async function createSubscription({ planId, userId, email, returnUrl, can
 
 export function getSubscription(subscriptionId) {
   return paypalRequest('GET', `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}`);
+}
+
+/**
+ * Change la formule d'un abonnement existant.
+ *
+ * PayPal appelle ça « réviser », et c'est exactement ce qu'il faut faire :
+ * ouvrir un second abonnement pour monter en gamme laisserait le premier
+ * courir, et le joueur serait prélevé deux fois chaque mois. Ici la ligne
+ * change, il n'y en a jamais deux.
+ *
+ * Une révision doit être approuvée par le payeur — c'est son argent qui
+ * augmente — d'où le lien de retour. PayPal ajuste le prorata lui-même.
+ */
+export async function reviseSubscription({ subscriptionId, planId, returnUrl, cancelUrl }) {
+  const revision = await paypalRequest(
+    'POST',
+    `/v1/billing/subscriptions/${encodeURIComponent(subscriptionId)}/revise`,
+    {
+      plan_id: planId,
+      application_context: {
+        brand_name: 'Suis-je un footix ?',
+        locale: 'fr-FR',
+        return_url: returnUrl,
+        cancel_url: cancelUrl,
+      },
+    }
+  );
+
+  const approve = (revision.links || []).find((l) => l.rel === 'approve');
+  if (!approve) throw new Error("PayPal n'a pas renvoyé de lien d'approbation.");
+
+  return { approveUrl: approve.href };
 }
 
 export function cancelSubscription(subscriptionId, reason = 'Résiliation demandée par le joueur.') {

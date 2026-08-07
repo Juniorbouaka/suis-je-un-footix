@@ -86,26 +86,32 @@ git status --short | grep -E "\.env$|footix\.db"   # ne doit rien afficher
    | `CLIENT_ORIGIN` | *(vide)* |
    | `PUBLIC_URL` | `https://ton-domaine.up.railway.app` |
    | `RESEND_API_KEY` | ta clé Resend (voir ci-dessous) |
-   | `ADMIN_EMAILS` | ton adresse : ouvre `/admin` **et** donne l'accès premium complet |
-   | `MAX_ATTEMPTS_FREE` | `15` |
-   | `MAX_ATTEMPTS_PREMIUM` | `50` |
+   | `ADMIN_EMAILS` | ton adresse : ouvre `/admin` **et** donne l'accès complet, sans abonnement |
+   | `MAX_ATTEMPTS` | `15` |
    | `MAX_ATTEMPTS_PVP` | `15` |
-   | `MAX_DUELS_FREE` | `1` |
-   | `MAX_DUELS_PREMIUM` | `5` |
-   | `MAX_GAMES_PREMIUM` | `5` |
+   | `CREDITS_ACCESS` | `20` |
+   | `CREDITS_UNLIMITED` | `75` |
 
    Ne touche pas à `PORT` : Railway l'injecte.
 
-   ⚠️ Trois d'entre elles ont changé de valeur (duel : `20` → `15` essais, `2` → `1` duel gratuit,
-   `20` → `5` duels pour un abonné). Une variable déjà posée sur Railway **écrase** la valeur du
-   code : si elle traîne avec l'ancien chiffre, corrige-la ou supprime-la — le code retombera sur
-   la bonne valeur par défaut. Idem pour l'ancienne `MAX_ATTEMPTS`, qui n'a plus cours.
+   ⚠️ **Le jeu est passé à l'abonnement obligatoire, et les variables ont changé avec lui.**
+   Une variable déjà posée sur Railway **écrase** la valeur du code : celles d'avant doivent
+   être supprimées, sinon elles continuent de s'appliquer. À retirer —
+   `MAX_ATTEMPTS_FREE`, `MAX_ATTEMPTS_PREMIUM`, `MAX_DUELS_FREE`, `MAX_DUELS_PREMIUM`,
+   `MAX_GAMES_PREMIUM` : les quotas journaliers n'existent plus, les crédits les remplacent.
+   (`MAX_ATTEMPTS_FREE` est encore relue en second recours par `MAX_ATTEMPTS`, donc une valeur
+   traînante y reste sans danger — les quatre autres n'ont plus aucun effet.)
 
-   `MAX_GAMES_PREMIUM` est le total de parties solo quotidiennes d'un abonné : la partie du jour,
-   qui compte au classement, plus les parties d'entraînement (des journées d'archive rejouées,
-   qui ne rapportent rien). `5` donne donc **1 classée + 4 d'entraînement**. C'est aussi un
-   garde-fou de dépense : avant, un abonné pouvait rejouer autant de journées qu'il en existait,
-   dans la même soirée. La valeur affichée sur la page d'offre suit automatiquement.
+   `CREDITS_ACCESS` et `CREDITS_UNLIMITED` sont les stocks mensuels des deux forfaits, en
+   PARTIES. Une partie du jour, une journée d'archive rejouée ou un duel en coûtent une ;
+   une invitation en coûte deux à celui qui l'envoie, puisqu'il offre celle de son invité.
+   Le stock est **remplacé** à chaque échéance payée, jamais additionné : les parties non
+   jouées ne se cumulent pas d'un mois sur l'autre.
+
+   Ces deux chiffres sont ce qui tient la marge : un crédit vaut au pire ~0,08 € d'appels à
+   l'API. À 20 crédits pour 2,99 € et 75 pour 9,99 €, le jeu reste bénéficiaire même si chaque
+   abonné épuise ses quinze chances à chaque partie. Les augmenter sans toucher aux prix, c'est
+   rogner directement là-dessus. La valeur affichée sur la page d'offre suit automatiquement.
 
 4. **Générer le domaine** — onglet *Settings* → *Networking* → *Generate Domain*.
    Tu obtiens une URL en `.up.railway.app`.
@@ -203,7 +209,7 @@ cd server
 # 1. Poser STRIPE_SECRET_KEY (sk_test_… pour essayer, sk_live_… pour encaisser)
 #    PUBLIC_URL doit deja pointer sur le domaine HTTPS : le script y declare le webhook.
 railway run npm run stripe:setup   # produit, deux prix, webhook — affiche tout
-# 2. Recopier STRIPE_PRICE_MONTHLY, STRIPE_PRICE_YEARLY et STRIPE_WEBHOOK_SECRET
+# 2. Recopier STRIPE_PRICE_ACCESS, STRIPE_PRICE_UNLIMITED et STRIPE_WEBHOOK_SECRET
 ```
 
 Le secret du webhook n'est visible **qu'à sa création**. S'il est perdu, supprime le point de
@@ -212,8 +218,14 @@ terminaison dans le tableau de bord Stripe et relance le script.
 | Variable | Rôle |
 |---|---|
 | `STRIPE_SECRET_KEY` | vide = aucun paiement par carte ni portefeuille ; PayPal reprend la place du bouton principal |
-| `STRIPE_PRICE_MONTHLY` · `STRIPE_PRICE_YEARLY` | abonnement ; les dons n'en ont pas besoin |
-| `STRIPE_WEBHOOK_SECRET` | sans lui, **tous** les webhooks sont refusés — un webhook non vérifié laisserait n'importe qui s'offrir le premium |
+| `STRIPE_PRICE_ACCESS` · `STRIPE_PRICE_UNLIMITED` | les deux forfaits ; les dons n'en ont pas besoin |
+| `STRIPE_WEBHOOK_SECRET` | sans lui, **tous** les webhooks sont refusés — un webhook non vérifié laisserait n'importe qui s'offrir un abonnement |
+
+⚠️ Les anciens prix (`STRIPE_PRICE_MONTHLY`, `STRIPE_PRICE_YEARLY`) ne sont plus lus. Tant que
+les deux nouveaux ne sont pas posés, l'offre s'affiche « indisponible » côté carte et seul
+PayPal — s'il est configuré — peut encore vendre. **Le jeu étant fermé aux non-abonnés, une
+offre indisponible ferme le jeu à tout le monde :** c'est la première chose à vérifier après
+le déploiement.
 
 Il n'y a pas deux environnements séparés comme chez PayPal : c'est la clé qui décide.
 `sk_test_…` ne touche à rien de réel, `sk_live_…` encaisse. Les identifiants de prix créés avec

@@ -17,9 +17,11 @@ import {
   createSubscription,
   getSubscription,
   paypalEnabled,
+  reviseSubscription,
   verifyWebhookSignature,
 } from '../paypal.js';
 import { stripeUsable } from '../stripe.js';
+import { creditHistory, creditSummary } from '../credits.js';
 
 export const billingRouter = Router();
 
@@ -56,6 +58,8 @@ billingRouter.get('/offer', (req, res) => {
       label: p.label,
       price: p.price,
       period: p.period,
+      // Le cœur de l'offre : ce qu'on achète, c'est un nombre de parties.
+      credits: p.credits,
       available: Boolean(p.planId()) || stripeOk(p.key),
       paypal: Boolean(p.planId()),
       stripe: stripeOk(p.key),
@@ -72,6 +76,25 @@ billingRouter.get('/status', requireAuth, (req, res) => {
 });
 
 /* -------------------------------------------------------------- *
+ *  GET /api/billing/credits — le portefeuille et son relevé
+ *
+ *  Le solde seul ne suffit pas. « J'ai perdu trois crédits sans jouer »
+ *  est une phrase qu'on entendra, et la seule réponse acceptable est un
+ *  relevé que le joueur peut lire lui-même — pas notre parole contre la
+ *  sienne. C'est aussi ce qui nous permet de vérifier avant de rembourser.
+ *
+ *  Ouverte à tout compte connecté, abonné ou non : un ancien abonné a le
+ *  droit de relire ce qu'il a consommé.
+ * -------------------------------------------------------------- */
+
+billingRouter.get('/credits', requireAuth, (req, res) => {
+  res.json({
+    ...creditSummary(req.user.id),
+    history: creditHistory(req.user.id, 40),
+  });
+});
+
+/* -------------------------------------------------------------- *
  *  POST /api/billing/subscribe — ouvre un abonnement chez PayPal
  *  Renvoie l'URL d'approbation vers laquelle envoyer le joueur.
  * -------------------------------------------------------------- */
@@ -80,15 +103,47 @@ billingRouter.post('/subscribe', requireAuth, billingLimiter, async (req, res) =
   if (!paypalEnabled) {
     return res.status(503).json({ error: "L'abonnement n'est pas encore ouvert." });
   }
-  if (req.user.is_premium) {
-    return res.status(409).json({ error: 'Tu es déjà abonné.' });
-  }
 
   const plan = PLANS[req.body?.plan];
   if (!plan) return res.status(400).json({ error: 'Formule inconnue.' });
 
   const planId = plan.planId();
   if (!planId) return res.status(503).json({ error: 'Cette formule est indisponible.' });
+
+  if (req.user.subscription_plan === plan.key && req.user.is_subscriber) {
+    return res.status(409).json({ error: 'Tu as déjà cette formule.' });
+  }
+
+  /*
+   * Changement de formule : PayPal RÉVISE l'abonnement en cours.
+   *
+   * En ouvrir un second laisserait le premier courir en parallèle — deux
+   * prélèvements mensuels pour un seul joueur, découverts sur un relevé
+   * bancaire des semaines plus tard. La révision remplace la ligne, elle
+   * n'en ajoute pas.
+   *
+   * Les droits ne sont PAS écrits ici : la révision doit d'abord être
+   * approuvée par le payeur. C'est le retour sur /premium/merci, puis le
+   * webhook, qui feront foi — comme pour une souscription ordinaire.
+   */
+  if (req.user.is_subscriber && req.user.subscription_provider === 'paypal' && req.user.subscription_id) {
+    try {
+      const { approveUrl } = await reviseSubscription({
+        subscriptionId: req.user.subscription_id,
+        planId,
+        returnUrl: `${config.publicUrl}/premium/merci`,
+        cancelUrl: `${config.publicUrl}/premium?annule=1`,
+      });
+
+      db.prepare('UPDATE users SET subscription_plan = ? WHERE id = ?').run(plan.key, req.user.id);
+      return res.json({ changed: true, approveUrl });
+    } catch (err) {
+      console.error('[billing] changement de formule :', err.message);
+      return res.status(502).json({
+        error: "PayPal n'a pas pu changer ta formule. Réessaie dans un instant.",
+      });
+    }
+  }
 
   try {
     const { id, approveUrl } = await createSubscription({

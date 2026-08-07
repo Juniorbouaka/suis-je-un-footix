@@ -90,15 +90,15 @@ export default function PremiumThanks() {
       </span>
       <h1 style={{ fontSize: 25, margin: '14px 0 8px' }}>Bienvenue chez les abonnés</h1>
       <p className="muted">
-        Merci — c'est ce qui fait tourner le jeu. Les archives, les statistiques et les thèmes sont
-        ouverts.
+        Merci — c'est ce qui fait tourner le jeu. Ton stock de parties est crédité : à dépenser en
+        partie du jour, en journées d'archive ou en duels, comme tu veux.
       </p>
       <div className="row wrap" style={{ gap: 10, marginTop: 20, justifyContent: 'center' }}>
-        <Link to="/archives" className="btn">
-          <Icon name="book" /> Explorer les archives
+        <Link to="/solo" className="btn">
+          <Icon name="target" /> Jouer la partie du jour
         </Link>
-        <Link to="/profil" className="btn btn-ghost">
-          Mes statistiques
+        <Link to="/archives" className="btn btn-ghost">
+          Explorer les archives
         </Link>
       </div>
     </div>

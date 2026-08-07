@@ -33,7 +33,7 @@ import { detailPaiement, ouvrirDon, portefeuille } from '../lib/paiement.js';
 const RACCOURCIS = [2, 5, 10];
 
 export default function SupportSection() {
-  const { isPremium } = useAuth();
+  const { hasAccess } = useAuth();
   const [busy, setBusy] = useState(0);
   const [error, setError] = useState('');
   const kind = portefeuille();
@@ -59,7 +59,9 @@ export default function SupportSection() {
     }
   })();
 
-  if (isPremium || dejaDonateur) return null;
+  // Un abonné, quel que soit son forfait, paie déjà le jeu : on ne lui
+  // redemande rien. L'encart ne s'adresse plus qu'aux visiteurs.
+  if (hasAccess || dejaDonateur) return null;
 
   const soutiens = data?.supporters ?? 0;
   const ouvert = options?.enabled !== false;
@@ -87,11 +89,12 @@ export default function SupportSection() {
           <Icon name="heart" size={26} strokeWidth={1.7} />
         </span>
         <div>
-          <h2 className="support-cta-title">Le jeu est gratuit, et le restera</h2>
+          <h2 className="support-cta-title">Un coup de pouce, sans abonnement</h2>
           <p className="support-cta-text">
-            Chaque proposition que tu envoies est évaluée par une IA, et chaque évaluation coûte
-            quelques centimes. Pas de compte à créer, pas d'engagement — et un don n'apporte
-            <strong> aucun avantage</strong> dans le jeu.
+            Chaque proposition envoyée est évaluée par une IA, et chaque évaluation coûte quelques
+            centimes : c'est ce que finance l'abonnement. Un don, lui, n'oblige à rien — pas de
+            compte à créer, pas d'engagement — et n'apporte <strong>aucun avantage</strong> dans le
+            jeu, pas même une partie de plus.
           </p>
         </div>
       </div>

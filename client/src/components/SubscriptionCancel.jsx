@@ -33,7 +33,7 @@ function jour(iso) {
 }
 
 export default function SubscriptionCancel() {
-  const { profile, isPremium, refreshProfile } = useAuth();
+  const { profile, hasAccess, planLabel, refreshProfile } = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -41,8 +41,15 @@ export default function SubscriptionCancel() {
 
   const billing = profile?.billing;
 
-  // Rien à résilier : compte gratuit.
-  if (!isPremium) return null;
+  /*
+   * Rien à résilier : personne ne prélève rien.
+   *
+   * Le test porte sur l'ACCÈS et non sur le forfait haut de gamme. Vérifier
+   * `isPremium` cacherait le bouton de résiliation à tous les abonnés de la
+   * formule Accès — c'est-à-dire retenir prisonniers ceux qui paient le
+   * moins, ce qui est à la fois odieux et illégal.
+   */
+  if (!hasAccess) return null;
 
   const echeance = jour(billing?.premiumUntil);
 
@@ -54,8 +61,8 @@ export default function SubscriptionCancel() {
       <section id="abonnement" className="card resiliation">
         <h2 style={{ fontSize: 16, marginBottom: 6 }}>Ton abonnement</h2>
         <p className="muted small" style={{ margin: 0 }}>
-          Ton accès premium a été accordé sans abonnement : rien n'est prélevé, il n'y a donc
-          rien à résilier.
+          Ton accès a été accordé sans abonnement : rien n'est prélevé, il n'y a donc rien à
+          résilier.
         </p>
       </section>
     );
@@ -89,19 +96,19 @@ export default function SubscriptionCancel() {
       {resilie ? (
         <p className="muted small" style={{ margin: 0 }}>
           {echeance
-            ? `Abonnement résilié. Rien ne sera plus prélevé, et tes avantages restent ouverts
+            ? `Abonnement résilié. Rien ne sera plus prélevé, et tu joues
                jusqu'au ${echeance}. Tu peux te réabonner quand tu veux.`
             : `Abonnement résilié. Rien ne sera plus prélevé. Tu peux te réabonner quand tu veux.`}
         </p>
       ) : (
         <>
           <p className="muted small" style={{ marginBottom: 14 }}>
-            {billing?.plan === 'yearly' ? 'Formule annuelle' : 'Formule mensuelle'}
+            Formule {planLabel || 'mensuelle'}
             {echeance ? `, prochaine échéance le ${echeance}` : ''}. Tu peux résilier à tout
             moment, sans justification et sans nous écrire.{' '}
-            <strong>Rien n'est perdu&nbsp;:</strong> la période déjà payée va à son terme et tes
-            avantages restent ouverts jusque-là. Aucun remboursement au prorata, aucun nouveau
-            prélèvement ensuite.
+            <strong>Rien n'est perdu&nbsp;:</strong> la période déjà payée va à son terme et ton
+            stock de parties reste utilisable jusque-là. Aucun remboursement au prorata, aucun
+            nouveau prélèvement ensuite.
           </p>
 
           {confirme ? (

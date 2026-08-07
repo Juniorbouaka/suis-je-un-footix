@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
@@ -10,7 +10,7 @@ import AdSlot from '../components/Ads.jsx';
 import SupportSection from '../components/SupportSection.jsx';
 
 export default function Landing() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, hasAccess } = useAuth();
   const navigate = useNavigate();
   const [authOpen, setAuthOpen] = useState(false);
   const [intent, setIntent] = useState('/solo');
@@ -25,10 +25,20 @@ export default function Landing() {
 
   const liveCount = online ?? stats?.online ?? 0;
 
+  /*
+   * Un clic sur « Jouer » mène à l'endroit exact où l'on en est : la partie
+   * pour un abonné, l'offre pour les autres, la création de compte pour un
+   * visiteur.
+   *
+   * Envoyer tout le monde vers /solo pour laisser le mur de paiement rebondir
+   * marcherait aussi, mais ferait clignoter un écran de jeu avant la
+   * redirection — l'impression d'une porte qu'on ouvre puis qu'on referme au
+   * nez. Autant nommer le prix tout de suite.
+   */
   const go = (path) => {
     setIntent(path);
-    if (isAuthenticated) navigate(path);
-    else setAuthOpen(true);
+    if (!isAuthenticated) return setAuthOpen(true);
+    navigate(hasAccess ? path : '/premium?requis=1');
   };
 
   return (
@@ -53,6 +63,21 @@ export default function Landing() {
             <Icon name="swords" size={19} /> Défier quelqu’un
           </button>
         </div>
+
+        {/*
+          Le prix, dès la première page.
+          Chaque proposition est un appel d'IA facturé : le jeu ne peut pas
+          être gratuit, et le laisser croire pour l'annoncer trois écrans plus
+          loin serait la façon la plus sûre de perdre quelqu'un — non pas
+          parce qu'il refuse de payer, mais parce qu'on ne le lui avait pas dit.
+        */}
+        {!hasAccess && (
+          <p className="small muted" style={{ marginTop: 14 }}>
+            <Icon name="crown" size={13} /> Le jeu fonctionne à l'abonnement — à partir de 2,99 €
+            par mois, un stock de parties à dépenser comme tu veux.{' '}
+            <Link to="/premium">Voir les formules</Link>.
+          </p>
+        )}
 
         <div className="countdown-card">
           <div>

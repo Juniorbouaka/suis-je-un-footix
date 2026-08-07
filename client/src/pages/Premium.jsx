@@ -7,76 +7,83 @@ import Icon from '../components/Icon.jsx';
 import { detailPaiement, libellePaiement, portefeuille } from '../lib/paiement.js';
 
 /**
- * L'offre premium.
+ * L'offre.
  *
- * Le cœur de l'offre est le volume de jeu quotidien : quinze chances et un
- * duel en gratuit, cinquante chances et cinq duels avec l'abonnement.
- * Chaque proposition part vers l'API Claude et se paie, alors le volume est
- * devenu ce qui distingue les deux forfaits — c'est le poste de dépense,
- * donc c'est ce qui se vend.
+ * Le jeu est payant à l'entrée. Ce n'est pas un détail d'affichage, c'est ce
+ * que la page doit dire en premier : le visiteur qui arrive ici a cliqué sur
+ * « Jouer », et lui laisser croire à un essai gratuit pour le heurter au mur
+ * trois écrans plus loin serait pire que de le lui dire tout de suite.
+ *
+ * Deux forfaits, et un seul chiffre les sépare vraiment : le nombre de
+ * parties. C'est aussi le seul poste de dépense du jeu — chaque proposition
+ * part vers l'API Claude et se facture. On vend donc exactement ce qu'on
+ * achète, ce qui a le mérite de s'expliquer en une phrase.
  *
  * Ce que l'abonnement ne donne toujours pas : d'indice, de point offert, ni
- * d'accès à un meilleur évaluateur. Le score reste calculé de la même
- * manière pour tous, et il baisse à chaque tentative supplémentaire. En
- * duel, il ne donne pas non plus un essai de plus : quinze pour tout le
- * monde, sinon ce n'est plus un duel.
+ * d'évaluateur plus complaisant. Le score se calcule pareil pour tout le
+ * monde et il baisse à chaque tentative. En duel, quinze essais chacun,
+ * abonné ou non — sinon ce n'est plus un duel. Et une seule partie classée
+ * par jour : payer achète du temps de jeu, jamais des points.
  */
 
-const AVANTAGES = [
-  {
-    icon: 'repeat',
-    titre: '5 parties par jour',
-    texte:
-      'Au lieu d’une. La partie du jour compte au classement, les quatre autres sont des parties d’entraînement : aucun point, aucune médaille, juste du jeu.',
+/* Ce que chaque forfait ouvre. `credits` est rempli par le serveur. */
+const DETAIL_FORMULES = {
+  access: {
+    argument: 'De quoi jouer sa partie du jour, tous les jours du mois.',
+    avantages: [
+      'Le joueur mystère du jour, tous les jours',
+      'Les duels, en aléatoire comme sur invitation',
+      'Toutes les archives, et le droit de les rejouer',
+    ],
+    manque: ['Publicité affichée', 'Thèmes de terrain et statistiques détaillées réservés'],
   },
+  unlimited: {
+    argument: 'Pour enchaîner : la partie du jour, les archives, les duels, sans compter.',
+    avantages: [
+      'Presque quatre fois plus de parties',
+      'Aucune publicité, nulle part',
+      'Statistiques détaillées et historique complet',
+      'Quatre thèmes de terrain supplémentaires',
+      'Couronne à côté de ton pseudo, au classement et en duel',
+    ],
+    manque: [],
+  },
+};
+
+/* Ce qui vaut pour les deux, et qui répond à « qu'est-ce que je paie ? ». */
+const COMMUN = [
   {
     icon: 'target',
-    titre: '50 chances par jour',
-    texte: 'Au lieu de 15 : de quoi finir les journées qui résistent.',
+    titre: '15 chances par partie',
+    texte:
+      'Pour tout le monde, quel que soit le forfait. Ce qu’on achète, c’est le nombre de parties — jamais un avantage à l’intérieur d’une partie.',
   },
   {
     icon: 'swords',
-    titre: '5 duels par jour',
-    texte: 'Au lieu d’un seul. Revanches comprises, et toujours 15 essais chacun.',
-  },
-  {
-    icon: 'flag',
-    titre: 'Aucune publicité',
-    texte: 'Le jeu, rien que le jeu, sur toutes les pages.',
+    titre: 'Duels illimités, dans la limite du stock',
+    texte:
+      'Un duel coûte une partie. Sur invitation, l’hôte paie pour deux : tu peux faire jouer un ami qui n’a plus rien.',
   },
   {
     icon: 'book',
     titre: 'Toutes les archives',
-    texte: 'Les journées passées en accès libre, au lieu des trois dernières.',
-  },
-  {
-    icon: 'play',
-    titre: 'Rejouer les journées passées',
     texte:
-      'Chaque journée manquée redevient une partie complète — ce sont tes parties d’entraînement.',
+      'Chaque journée manquée redevient une partie complète. Rejouer coûte une partie, consulter ne coûte rien.',
   },
   {
     icon: 'chart',
-    titre: 'Statistiques détaillées',
-    texte: 'Ta progression mois par mois, la répartition de tes tentatives, ton historique complet.',
-  },
-  {
-    icon: 'palette',
-    titre: 'Thèmes de terrain',
-    texte: 'Quatre décors supplémentaires : nocturne, braise, glace, terre battue.',
-  },
-  {
-    icon: 'crown',
-    titre: 'Badge au classement',
-    texte: 'Une couronne à côté de ton pseudo, au classement et en duel.',
+    titre: 'Le classement reste le classement',
+    texte:
+      'Une seule partie compte par jour, la première. Les suivantes se jouent hors classement : l’abonnement achète du temps de jeu, pas des points.',
   },
 ];
 
 export default function Premium() {
-  const { isAuthenticated, isPremium } = useAuth();
+  const { isAuthenticated, hasAccess, plan: planActuel, refreshProfile } = useAuth();
   const [params] = useSearchParams();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   // Le libellé du bouton suit le téléphone : « Payer avec Apple Pay » vaut
   // mieux que « Payer par carte » quand on n'aura justement pas de carte à
   // sortir. La page de paiement Stripe affiche le portefeuille en premier.
@@ -97,20 +104,36 @@ export default function Premium() {
 
   /**
    * Ouvre le paiement chez l'encaisseur choisi.
-   * Les deux repartent avec la même mécanique : le serveur crée la session,
-   * on quitte le site, et le webhook fait foi au retour.
+   *
+   * Trois issues, et le code doit les distinguer :
+   *
+   *   — souscription : on quitte le site vers la page de paiement, le
+   *     webhook fait foi au retour ;
+   *   — changement de formule chez Stripe : rien à approuver, l'abonnement
+   *     est modifié sur place et le nouveau stock est déjà servi. On reste
+   *     sur la page et on le dit ;
+   *   — changement de formule chez PayPal : le payeur doit approuver la
+   *     hausse, donc on repart comme pour une souscription.
    */
   const souscrire = async (planKey, moyen) => {
     setBusy(`${planKey}:${moyen}`);
     setError('');
+    setMessage('');
     try {
-      if (moyen === 'stripe') {
-        const { data } = await api.post('/stripe/subscribe', { plan: planKey });
-        window.location.href = data.url;
-      } else {
-        const { data } = await api.post('/billing/subscribe', { plan: planKey });
-        window.location.href = data.approveUrl;
+      const route = moyen === 'stripe' ? '/stripe/subscribe' : '/billing/subscribe';
+      const { data } = await api.post(route, { plan: planKey });
+
+      const url = data.url || data.approveUrl;
+      if (url) {
+        window.location.href = url;
+        return;
       }
+
+      // Changement appliqué sur place : le solde a bougé, le profil aussi.
+      await refreshProfile();
+      queryClient.invalidateQueries({ queryKey: ['billing-credits'] });
+      setMessage('Formule changée — ton nouveau stock de parties est déjà crédité.');
+      setBusy('');
     } catch (err) {
       setError(errorMessage(err));
       setBusy('');
@@ -123,20 +146,28 @@ export default function Premium() {
   if (isLoading) return <div className="spinner" style={{ marginTop: 80 }} />;
 
   const annule = params.get('annule');
+  // Renvoyé ici par le mur de paiement : il a cliqué sur « Jouer ».
+  const requis = params.get('requis');
 
   return (
-    <div style={{ maxWidth: 780, margin: '0 auto' }}>
+    <div style={{ maxWidth: 820, margin: '0 auto' }}>
       <div className="center" style={{ marginBottom: 26 }}>
         <span className="pill pill-green">
-          <Icon name="crown" size={14} /> Premium
+          <Icon name="crown" size={14} /> Abonnement
         </span>
-        <h1 style={{ fontSize: 30, margin: '14px 0 8px' }}>Soutiens le jeu, débloque tout</h1>
-        <p className="muted" style={{ maxWidth: 520, margin: '0 auto' }}>
-          Chaque proposition est évaluée par une IA, et ça se paye. L'abonnement fait vivre le jeu —
-          et fait passer ta journée d'une à 5 parties, de 15 à 50 chances et d'un à 5 duels, sans
-          publicité, archives comprises.
+        <h1 style={{ fontSize: 30, margin: '14px 0 8px' }}>Choisis ta formule</h1>
+        <p className="muted" style={{ maxWidth: 560, margin: '0 auto' }}>
+          Chaque mot que tu proposes est évalué par une IA, et chaque évaluation se paie. Le jeu
+          fonctionne donc à l'abonnement : un stock de parties chaque mois, et tu choisis toi-même
+          comment le dépenser — partie du jour, archives ou duels.
         </p>
       </div>
+
+      {requis && (
+        <div className="alert alert-info" style={{ marginBottom: 18 }}>
+          Jouer demande un abonnement. C'est le prix des évaluations : sans lui, le jeu s'arrête.
+        </div>
+      )}
 
       {annule && (
         <div className="alert alert-info" style={{ marginBottom: 18 }}>
@@ -144,15 +175,135 @@ export default function Premium() {
         </div>
       )}
 
-      {isPremium && (
+      {message && (
         <div className="alert alert-success" style={{ marginBottom: 18 }}>
-          Tu es déjà abonné — merci. Tu peux gérer ton abonnement depuis{' '}
-          <Link to="/profil">ton profil</Link>.
+          {message} <Link to="/solo">Jouer maintenant</Link>.
         </div>
       )}
 
+      {isError ? (
+        <div className="card center" style={{ marginBottom: 22 }}>
+          <Icon name="alert" size={28} />
+          <p className="muted" style={{ marginTop: 10 }}>
+            Impossible de charger l'offre pour le moment. L'abonnement existe bien — c'est
+            l'affichage qui coince.
+          </p>
+          <button className="btn" onClick={() => refetch()} disabled={isFetching}>
+            {isFetching ? 'Chargement…' : 'Réessayer'}
+          </button>
+        </div>
+      ) : !offer?.enabled ? (
+        <div className="card center" style={{ marginBottom: 22 }}>
+          <p className="muted">L'abonnement n'est pas encore ouvert. Reviens bientôt !</p>
+        </div>
+      ) : !isAuthenticated ? (
+        <div className="card center" style={{ marginBottom: 22 }}>
+          <p className="muted">
+            Crée un compte pour t'abonner — c'est gratuit et ça prend 30 secondes.
+          </p>
+        </div>
+      ) : (
+        <div className="plan-grid" style={{ marginBottom: 22 }}>
+          {(offer?.plans || []).map((plan) => {
+            const detail = DETAIL_FORMULES[plan.key] || { avantages: [], manque: [] };
+            const meilleur = plan.key === 'unlimited';
+            const actuel = hasAccess && planActuel === plan.key;
+
+            return (
+              <div key={plan.key} className={`card plan${meilleur ? ' plan-best' : ''}`}>
+                {meilleur && <span className="plan-flag">Le plus joué</span>}
+                <div className="plan-label">{plan.label}</div>
+                <div className="plan-price">
+                  {plan.price} <span className="plan-currency">€</span>
+                </div>
+                <div className="plan-period muted small">{plan.period}</div>
+
+                {/* Le chiffre qui décide. Il est plus gros que le reste
+                    parce que c'est lui qu'on compare d'une carte à l'autre. */}
+                <div className="plan-credits">
+                  <strong className="mono">{plan.credits}</strong> parties par mois
+                </div>
+                <p className="small muted" style={{ margin: '4px 0 0' }}>
+                  {detail.argument}
+                </p>
+
+                <ul className="plan-list">
+                  {detail.avantages.map((a) => (
+                    <li key={a}>
+                      <Icon name="check" size={14} /> {a}
+                    </li>
+                  ))}
+                  {detail.manque.map((m) => (
+                    <li key={m} className="faint">
+                      <Icon name="lock" size={14} /> {m}
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="stack-sm" style={{ marginTop: 16 }}>
+                  {actuel ? (
+                    <div className="alert alert-success" style={{ margin: 0 }}>
+                      C'est ta formule actuelle.
+                    </div>
+                  ) : (
+                    <>
+                      {plan.stripe && (
+                        <>
+                          <button
+                            className={`btn btn-lg btn-wallet wallet-${kind || 'card'}${meilleur ? '' : ' btn-ghost'}`}
+                            style={{ width: '100%' }}
+                            disabled={Boolean(busy)}
+                            onClick={() => souscrire(plan.key, 'stripe')}
+                          >
+                            {busy === `${plan.key}:stripe`
+                              ? 'Un instant…'
+                              : hasAccess
+                                ? `Passer à ${plan.label}`
+                                : libellePaiement(kind)}
+                          </button>
+                          {!hasAccess && (
+                            <p className="small faint center" style={{ margin: 0 }}>
+                              {detailPaiement(kind).replace(' — sans créer de compte', '')}
+                            </p>
+                          )}
+                        </>
+                      )}
+
+                      {plan.paypal && (
+                        <button
+                          className={`btn btn-lg${meilleur && !plan.stripe ? '' : ' btn-ghost'}`}
+                          style={{ width: '100%' }}
+                          disabled={Boolean(busy)}
+                          onClick={() => souscrire(plan.key, 'paypal')}
+                        >
+                          {busy === `${plan.key}:paypal` ? 'Un instant…' : 'Payer avec PayPal'}
+                        </button>
+                      )}
+
+                      {!plan.available && (
+                        <p className="small faint center" style={{ margin: 0 }}>
+                          Indisponible
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {error && (
+        <div className="alert alert-error" style={{ marginBottom: 18 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Ce qui vaut pour les deux formules : on l'affiche APRÈS les prix.
+          Le visiteur vient chercher un tarif, pas une liste d'arguments. */}
       <div className="premium-grid">
-        {AVANTAGES.map((a) => (
+        {COMMUN.map((a) => (
           <div key={a.titre} className="premium-feature">
             <span className="premium-feature-icon">
               <Icon name={a.icon} size={19} />
@@ -168,103 +319,15 @@ export default function Premium() {
       </div>
 
       <div className="premium-note small muted">
-        <Icon name="check" size={14} /> Le score, lui, ne s'achète pas : il baisse de 50 points à
-        chaque chance utilisée, pour tout le monde. Un abonné qui trouve au 40<sup>e</sup> essai
-        marque moins qu'un joueur gratuit qui trouve au 3<sup>e</sup>. Aucun indice, aucun point
-        offert — et les quatre parties d'entraînement quotidiennes ne rapportent rien du tout au
-        classement, par construction.
+        <Icon name="check" size={14} /> Une partie entamée n'est jamais décomptée deux fois : on
+        débite à l'ouverture, et reprendre après une déconnexion ne coûte rien. Si l'évaluateur
+        tombe en panne ou si un duel ne démarre pas, la partie est rendue — le détail de chaque
+        mouvement est lisible dans ton profil.
       </div>
-
-      {isError ? (
-        <div className="card center" style={{ marginTop: 22 }}>
-          <Icon name="alert" size={28} />
-          <p className="muted" style={{ marginTop: 10 }}>
-            Impossible de charger l'offre pour le moment. L'abonnement existe bien — c'est
-            l'affichage qui coince.
-          </p>
-          <button className="btn" onClick={() => refetch()} disabled={isFetching}>
-            {isFetching ? 'Chargement…' : 'Réessayer'}
-          </button>
-        </div>
-      ) : !offer?.enabled ? (
-        <div className="card center" style={{ marginTop: 22 }}>
-          <p className="muted">
-            L'abonnement n'est pas encore ouvert. Reviens bientôt !
-          </p>
-        </div>
-      ) : !isAuthenticated ? (
-        <div className="card center" style={{ marginTop: 22 }}>
-          <p className="muted">Crée un compte pour t'abonner — c'est gratuit et ça prend 30 secondes.</p>
-        </div>
-      ) : (
-        <div className="plan-grid" style={{ marginTop: 22 }}>
-          {(offer?.plans || []).map((plan) => (
-            <div key={plan.key} className={`card plan${plan.key === 'yearly' ? ' plan-best' : ''}`}>
-              {plan.key === 'yearly' && <span className="plan-flag">2 mois offerts</span>}
-              <div className="plan-label">{plan.label}</div>
-              <div className="plan-price">
-                {plan.price} <span className="plan-currency">€</span>
-              </div>
-              <div className="plan-period muted small">{plan.period}</div>
-
-              <div className="stack-sm" style={{ marginTop: 16 }}>
-                {plan.stripe && (
-                  <>
-                    <button
-                      className={`btn btn-lg btn-wallet wallet-${kind || 'card'}${plan.key === 'yearly' ? '' : ' btn-ghost'}`}
-                      style={{ width: '100%' }}
-                      disabled={isPremium || Boolean(busy)}
-                      onClick={() => souscrire(plan.key, 'stripe')}
-                    >
-                      {busy === `${plan.key}:stripe`
-                        ? 'Redirection…'
-                        : isPremium
-                          ? 'Déjà abonné'
-                          : libellePaiement(kind)}
-                    </button>
-                    {!isPremium && (
-                      <p className="small faint center" style={{ margin: 0 }}>
-                        {detailPaiement(kind).replace(' — sans créer de compte', '')}
-                      </p>
-                    )}
-                  </>
-                )}
-
-                {plan.paypal && (
-                  <button
-                    className={`btn btn-lg${plan.key === 'yearly' && !plan.stripe ? '' : ' btn-ghost'}`}
-                    style={{ width: '100%' }}
-                    disabled={isPremium || Boolean(busy)}
-                    onClick={() => souscrire(plan.key, 'paypal')}
-                  >
-                    {busy === `${plan.key}:paypal`
-                      ? 'Redirection…'
-                      : isPremium
-                        ? 'Déjà abonné'
-                        : 'Payer avec PayPal'}
-                  </button>
-                )}
-
-                {!plan.available && (
-                  <p className="small faint center" style={{ margin: 0 }}>
-                    Indisponible
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {error && (
-        <div className="alert alert-error" style={{ marginTop: 16 }}>
-          {error}
-        </div>
-      )}
 
       <p className="small muted center" style={{ marginTop: 20 }}>
         Carte bancaire, Apple Pay, Google Pay ou PayPal. Résiliable à tout moment depuis ton profil
-        — tes avantages courent jusqu'à la fin de la période déjà payée.
+        — ton stock reste utilisable jusqu'à la fin de la période déjà payée.
       </p>
 
       {offer?.donateUrl && (

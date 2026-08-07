@@ -194,7 +194,7 @@ export default function Admin() {
         <Kpi
           value={data.premium.active}
           label="Abonnés"
-          hint={`${data.premium.monthly} mensuel · ${data.premium.yearly} annuel`}
+          hint={`${data.premium.access} Accès · ${data.premium.unlimited} Illimité`}
         />
         <Kpi
           value={data.premium.cancelled}
@@ -208,6 +208,38 @@ export default function Admin() {
           hint={data.budget.limit ? `plafond ${data.budget.limit}` : 'sans plafond'}
         />
       </div>
+
+      {/* --- Crédits -------------------------------------------------- *
+        *
+        * Le rapport consommé/distribué est LE chiffre à surveiller : les
+        * crédits servis sont un engagement de dépense (jusqu'à ~0,08 € d'API
+        * chacun), les crédits consommés sont la dépense réelle. Tant que la
+        * consommation reste sous la distribution, la marge tient. Le jour où
+        * elle la dépasse durablement, c'est le prix qu'il faut revoir — et on
+        * veut le voir venir, pas le découvrir sur une facture. */}
+      {data.credits && (
+        <div className="stat-grid" style={{ marginBottom: 22 }}>
+          <Kpi
+            value={data.credits.outstanding}
+            label="Parties en circulation"
+            hint="stocks non consommés — dépense engagée"
+          />
+          <Kpi
+            value={data.credits.spent30d}
+            label="Parties consommées (30 j)"
+            hint="la dépense API réelle"
+          />
+          <Kpi
+            value={data.credits.granted30d}
+            label="Parties distribuées (30 j)"
+            hint={
+              data.credits.granted30d > 0
+                ? `${Math.round((data.credits.spent30d / data.credits.granted30d) * 100)} % consommé`
+                : 'aucune recharge'
+            }
+          />
+        </div>
+      )}
 
       {/* --- Journal ------------------------------------------------- */}
       <div className="admin-cols">
@@ -321,7 +353,7 @@ export default function Admin() {
                     </span>
                     <span className="small faint">
                       inscrit le {formatDate(u.createdAt)}
-                      {u.plan ? ` · ${u.plan === 'yearly' ? 'annuel' : 'mensuel'}` : ''}
+                      {u.plan ? ` · ${u.plan === 'unlimited' ? 'Illimité' : 'Accès'}` : ''}
                     </span>
                   </td>
                   <td className="small muted">{u.email}</td>

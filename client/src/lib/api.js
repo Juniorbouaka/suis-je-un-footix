@@ -32,6 +32,20 @@ api.interceptors.response.use(
     const original = error.config;
     const session = readSession();
 
+    /*
+     * Le serveur vient de fermer la porte : l'abonnement a expiré, ou il a
+     * été résilié depuis un autre appareil. L'événement prévient
+     * l'application, qui relit le profil et bascule sur l'offre — sinon
+     * l'écran reste celui d'un abonné et chaque clic échoue en silence.
+     *
+     * On ne redirige pas d'ici : une bibliothèque HTTP qui décide de la
+     * navigation est une source de surprises. On signale, l'application
+     * décide.
+     */
+    if (error.response?.status === 402 && error.response.data?.needsSubscription) {
+      window.dispatchEvent(new Event('footix:needs-subscription'));
+    }
+
     if (error.response?.status !== 401 || original?._retried || !session?.refreshToken) {
       return Promise.reject(error);
     }
@@ -64,4 +78,26 @@ api.interceptors.response.use(
 
 export function errorMessage(error, fallback = 'Une erreur est survenue.') {
   return error?.response?.data?.error || error?.message || fallback;
+}
+
+/**
+ * Ce refus est-il un mur de paiement — c'est-à-dire « prends un abonnement » ?
+ *
+ * À distinguer soigneusement de `sansCredit` ci-dessous : les deux répondent
+ * 402, mais l'un se règle en s'abonnant et l'autre en attendant la recharge.
+ * Proposer l'abonnement à quelqu'un qui paie déjà est la meilleure façon de
+ * le faire résilier.
+ */
+export function murPaiement(error) {
+  return Boolean(error?.response?.data?.needsSubscription);
+}
+
+/** Ce refus est-il un portefeuille vide ? Le solde à jour vient avec. */
+export function sansCredit(error) {
+  return Boolean(error?.response?.data?.needsCredits);
+}
+
+/** Le portefeuille joint à une réponse d'erreur, s'il y en a un. */
+export function creditsDeLErreur(error) {
+  return error?.response?.data?.credits || null;
 }

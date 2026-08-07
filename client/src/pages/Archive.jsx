@@ -1,14 +1,22 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api.js';
+import { useAuth } from '../lib/auth.jsx';
+import { publierCredits, useCredits } from '../lib/credits.js';
 import Icon from '../components/Icon.jsx';
 
 /**
  * Les journées passées.
  *
- * Le nom n'est affiché que si le joueur le connaît déjà — parce qu'il a joué
- * ce jour-là, ou parce qu'il a terminé son rejeu. Sinon la journée reste à
- * jouer : l'afficher la gâcherait.
+ * Tout est consultable — les fiches sont en cache, les servir ne coûte rien.
+ * Ce qui coûte, c'est de PROPOSER : rejouer une journée débite une partie du
+ * stock, exactement comme la partie du jour. La règle tient en une phrase, et
+ * c'est ce qu'on affiche.
+ *
+ * Le nom du joueur n'est montré que si le visiteur le connaît déjà — parce
+ * qu'il a joué ce jour-là, ou parce qu'il a terminé son rejeu. Sinon la
+ * journée reste à jouer : l'afficher la gâcherait.
  */
 
 function formatDate(iso) {
@@ -18,14 +26,7 @@ function formatDate(iso) {
   });
 }
 
-function Statut({ day, quotaEpuise }) {
-  if (day.locked) {
-    return (
-      <span className="pill faint">
-        <Icon name="lock" size={12} /> premium
-      </span>
-    );
-  }
+function Statut({ day, aSec }) {
   if (day.result) {
     return (
       <span className={`pill ${day.result.outcome === 'found' ? 'pill-green' : ''}`}>
@@ -44,45 +45,69 @@ function Statut({ day, quotaEpuise }) {
       </span>
     );
   }
-  if (day.inProgress) return <span className="pill">en cours</span>;
+  // Journée entamée : elle est déjà payée, elle se termine même à zéro.
+  if (day.inProgress) return <span className="pill pill-action">en cours</span>;
+
   if (day.replayable) {
-    // Plus de crédit d'entraînement : annoncer « à jouer » serait promettre
-    // une partie que le serveur refusera. On dit quand elle rouvre.
-    if (quotaEpuise) {
+    /*
+     * Une journée déjà payée mais pas encore commencée reste ouverte : le
+     * débit a eu lieu (un abandon, une reprise), elle ne coûtera rien de
+     * plus. Le dire évite qu'un joueur à zéro la croie fermée.
+     */
+    if (day.paid) {
+      return (
+        <span className="pill pill-green">
+          <Icon name="check" size={12} /> payée
+        </span>
+      );
+    }
+    // Plus de stock : annoncer « à jouer » serait promettre une partie que le
+    // serveur refusera. On dit ce qu'il en est.
+    if (aSec) {
       return (
         <span className="pill faint">
-          <Icon name="clock" size={12} /> demain
+          <Icon name="clock" size={12} /> recharge
         </span>
       );
     }
     return (
       <span className="pill pill-action">
-        <Icon name="play" size={12} /> à jouer
+        <Icon name="play" size={12} /> 1 partie
       </span>
     );
   }
-  // Consultable mais pas jouable : le rejeu est reserve aux abonnes.
+
   return (
     <span className="pill faint">
-      <Icon name="crown" size={12} /> rejeu premium
+      <Icon name="check" size={12} /> jouée
     </span>
   );
 }
 
 export default function Archive() {
+  const { isPremium, credits: duProfil } = useAuth();
+  const credits = useCredits(duProfil);
+
   const { data, isLoading } = useQuery({
     queryKey: ['archive'],
     queryFn: async () => (await api.get('/archive')).data,
   });
 
+  // Le solde voyage avec la liste : l'en-tête doit bouger en même temps.
+  useEffect(() => {
+    if (data?.credits) publierCredits(data.credits);
+  }, [data]);
+
   if (isLoading) return <div className="spinner" style={{ marginTop: 80 }} />;
 
   const days = data?.days || [];
-  const aJouer = days.filter((d) => !d.locked && d.replayable && !d.replay).length;
-  const training = data?.training;
-  const restantes = training?.remaining ?? 0;
-  const quotaEpuise = Boolean(data?.isPremium && training?.max > 0 && restantes === 0);
+  const aJouer = days.filter((d) => d.replayable && !d.replay).length;
+  const solde = credits?.balance ?? 0;
+  const aSec = solde <= 0;
   const enCours = days.filter((d) => d.inProgress).length;
+  const recharge = credits?.nextRecharge
+    ? new Date(credits.nextRecharge).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
+    : null;
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -90,37 +115,40 @@ export default function Archive() {
         <div>
           <h1 style={{ fontSize: 26 }}>Archives</h1>
           <p className="muted small">
-            {quotaEpuise
+            {aSec
               ? enCours > 0
-                ? `${enCours} partie${enCours > 1 ? 's' : ''} en cours à terminer — les autres rouvrent à minuit.`
-                : 'Tes parties d’entraînement rouvrent à minuit.'
+                ? `${enCours} partie${enCours > 1 ? 's' : ''} en cours à terminer — elles sont déjà payées.`
+                : 'Consulter reste ouvert : c’est rejouer qui demande une partie de ton stock.'
               : aJouer > 0
-                ? `${aJouer} journée${aJouer > 1 ? 's' : ''} que tu peux encore jouer.`
+                ? `${aJouer} journée${aJouer > 1 ? 's' : ''} à rejouer — une partie de ton stock chacune.`
                 : 'Les joueurs mystères des jours précédents.'}
           </p>
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
-          {/* Le quota s'affiche AVANT le clic : ouvrir une journée pour
-              apprendre qu'on n'a plus de crédit serait une petite trahison. */}
-          {data?.isPremium && training?.max > 0 && (
-            <span className={`pill${restantes > 0 ? ' pill-green' : ''}`}>
-              <Icon name="repeat" size={13} /> {restantes}/{training.max} entraînement
-            </span>
-          )}
-          {data?.isPremium ? (
-            <span className="pill pill-green">
-              <Icon name="crown" size={13} /> Accès complet
-            </span>
-          ) : (
-            <span className="pill">{data?.freeDays} derniers jours en accès libre</span>
-          )}
+          {/* Le solde s'affiche AVANT le clic : ouvrir une journée pour
+              apprendre qu'on n'a plus rien serait une petite trahison. */}
+          <span className={`pill${!aSec ? ' pill-green' : ''}`}>
+            <Icon name="target" size={13} /> {solde} partie{solde > 1 ? 's' : ''} en stock
+          </span>
+          <span className="pill" title="Le rejeu ne rapporte aucun point">
+            <Icon name="repeat" size={13} /> hors classement
+          </span>
         </div>
       </div>
 
-      {data?.isPremium && restantes === 0 && training?.max > 0 && (
+      {aSec && (
         <div className="alert alert-info" style={{ marginBottom: 16 }}>
-          Tes {training.max} parties d'entraînement du jour sont utilisées — les journées déjà
-          commencées restent terminables. Tout se remet à zéro à minuit.
+          <div className="row row-between wrap" style={{ gap: 10 }}>
+            <span>
+              Ton stock est épuisé{recharge ? ` — il se recharge le ${recharge}` : ''}. Les journées
+              déjà commencées restent terminables, et consulter ne coûte rien.
+            </span>
+            {!isPremium && (
+              <Link to="/premium" className="btn btn-sm">
+                <Icon name="crown" size={14} /> Voir l'Illimité
+              </Link>
+            )}
+          </div>
         </div>
       )}
 
@@ -131,47 +159,17 @@ export default function Archive() {
       ) : (
         <div className="card">
           <div className="stack-sm">
-            {days.map((day) => {
-              const contenu = (
-                <>
-                  <span className="mono faint">n°{day.number}</span>
-                  <span className="archive-word">
-                    {day.word || (day.locked ? '• • • • •' : 'à découvrir')}
-                  </span>
-                  <span className="row" style={{ gap: 8 }}>
-                    <span className="mono faint small hide-sm">{formatDate(day.date)}</span>
-                    <Statut day={day} quotaEpuise={quotaEpuise} />
-                  </span>
-                </>
-              );
-
-              // Une journée verrouillée n'est pas cliquable ; une journée
-              // accessible mène toujours à sa page, jouable ou déjà résolue.
-              return day.locked ? (
-                <div key={day.date} className="archive-row locked">
-                  {contenu}
-                </div>
-              ) : (
-                <Link key={day.date} to={`/archives/${day.date}`} className="archive-row">
-                  {contenu}
-                </Link>
-              );
-            })}
-          </div>
-
-          {!data?.isPremium && days.some((d) => d.locked) && (
-            <div className="alert alert-info" style={{ marginTop: 16 }}>
-              <div className="row row-between wrap" style={{ gap: 10 }}>
-                <span>
-                  Les journées plus anciennes sont réservées aux abonnés, qui peuvent aussi
-                  <strong> rejouer</strong> toutes celles qu'ils ont manquées.
+            {days.map((day) => (
+              <Link key={day.date} to={`/archives/${day.date}`} className="archive-row">
+                <span className="mono faint">n°{day.number}</span>
+                <span className="archive-word">{day.word || 'à découvrir'}</span>
+                <span className="row" style={{ gap: 8 }}>
+                  <span className="mono faint small hide-sm">{formatDate(day.date)}</span>
+                  <Statut day={day} aSec={aSec} />
                 </span>
-                <Link to="/premium" className="btn btn-sm">
-                  <Icon name="crown" size={14} /> Débloquer
-                </Link>
-              </div>
-            </div>
-          )}
+              </Link>
+            ))}
+          </div>
         </div>
       )}
     </div>

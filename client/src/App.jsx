@@ -26,6 +26,27 @@ function Protected({ children }) {
 }
 
 /*
+ * Le mur de paiement, côté écran.
+ *
+ * Il double celui du serveur, il ne le remplace pas : c'est `requirePaid-
+ * Access` qui refuse pour de bon, ici on évite seulement d'ouvrir une page
+ * dont chaque bouton échouerait. Masquer une page n'a jamais protégé une
+ * API, et une API protégée n'a jamais rendu une page agréable.
+ *
+ * Un joueur sans abonnement part vers l'offre plutôt que vers l'accueil :
+ * il a cliqué sur « Jouer », la réponse à ce clic est le prix, pas un
+ * renvoi silencieux à la case départ. Le paramètre `requis` permet à la
+ * page d'offre de le dire en toutes lettres.
+ */
+function Subscribed({ children }) {
+  const { isAuthenticated, hasAccess, loading } = useAuth();
+  if (loading) return <div className="spinner" style={{ marginTop: 80 }} />;
+  if (!isAuthenticated) return <Navigate to="/" replace />;
+  if (!hasAccess) return <Navigate to="/premium?requis=1" replace />;
+  return children;
+}
+
+/*
  * Le tableau de bord n'est qu'une vue : le serveur reste seul juge et
  * répond 404 à qui n'est pas administrateur. Masquer la page ici évite
  * simplement d'afficher un écran d'erreur à un joueur curieux.
@@ -42,28 +63,30 @@ export default function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<Landing />} />
+        {/* Les quatre écrans qui font jouer — donc les quatre qui appellent
+            l'API Claude — passent par le mur de paiement. */}
         <Route
           path="/solo"
           element={
-            <Protected>
+            <Subscribed>
               <Solo />
-            </Protected>
+            </Subscribed>
           }
         />
         <Route
           path="/duel"
           element={
-            <Protected>
+            <Subscribed>
               <Matchmaking />
-            </Protected>
+            </Subscribed>
           }
         />
         <Route
           path="/duel/partie"
           element={
-            <Protected>
+            <Subscribed>
               <Arena />
-            </Protected>
+            </Subscribed>
           }
         />
         <Route path="/classement" element={<Leaderboard />} />
@@ -71,17 +94,17 @@ export default function App() {
         <Route
           path="/archives"
           element={
-            <Protected>
+            <Subscribed>
               <Archive />
-            </Protected>
+            </Subscribed>
           }
         />
         <Route
           path="/archives/:date"
           element={
-            <Protected>
+            <Subscribed>
               <ArchiveGame />
-            </Protected>
+            </Subscribed>
           }
         />
 

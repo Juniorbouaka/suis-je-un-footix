@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api, readSession, writeSession } from './api.js';
+import { oublierCredits, publierCredits } from './credits.js';
 
 const AuthContext = createContext(null);
 
@@ -16,6 +17,16 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.get('/auth/me');
       setProfile(data);
+      /*
+       * Le portefeuille du profil est publié dans le dépôt commun.
+       *
+       * Il vient du serveur, il est donc au moins aussi frais que ce qui y
+       * est déjà. Sans cette ligne, un abonné qui passe à l'Illimité avec un
+       * solde à zéro verrait toujours zéro dans l'en-tête : le profil aurait
+       * le bon chiffre, mais le dépôt garderait l'ancien — et c'est le dépôt
+       * qui gagne, par construction.
+       */
+      publierCredits(data?.billing?.credits);
       return data;
     } catch {
       setProfile(null);
@@ -38,16 +49,36 @@ export function AuthProvider({ children }) {
     const onSignedOut = () => {
       setSession(null);
       setProfile(null);
+      // Une session qui expire est une session qui se termine : le solde
+      // appartenait à ce compte-là, il ne doit pas s'afficher au suivant.
+      oublierCredits();
     };
     window.addEventListener('footix:signed-out', onSignedOut);
     return () => window.removeEventListener('footix:signed-out', onSignedOut);
   }, []);
+
+  /*
+   * Le serveur a refusé un appel faute d'abonnement : on relit le profil.
+   *
+   * Le cas se produit pour de bon — un abonnement qui expire pendant qu'un
+   * onglet reste ouvert, une résiliation depuis un autre appareil. Sans
+   * cette relecture, l'interface continue d'afficher le jeu à quelqu'un qui
+   * n'y a plus droit, et chaque clic échoue sans explication.
+   */
+  useEffect(() => {
+    const onPaywall = () => {
+      refreshProfile();
+    };
+    window.addEventListener('footix:needs-subscription', onPaywall);
+    return () => window.removeEventListener('footix:needs-subscription', onPaywall);
+  }, [refreshProfile]);
 
   const persist = useCallback(async (data) => {
     writeSession(data);
     setSession(data);
     const { data: me } = await api.get('/auth/me');
     setProfile(me);
+    publierCredits(me?.billing?.credits);
     return me;
   }, []);
 
@@ -72,6 +103,7 @@ export function AuthProvider({ children }) {
     writeSession(null);
     setSession(null);
     setProfile(null);
+    oublierCredits();
     if (current?.refreshToken) {
       api.post('/auth/logout', { refreshToken: current.refreshToken }).catch(() => {});
     }
@@ -86,6 +118,25 @@ export function AuthProvider({ children }) {
       rank: profile?.rank || null,
       achievements: profile?.achievements || [],
       isPremium: Boolean(profile?.user?.isPremium),
+      /*
+       * Deux droits distincts, et les confondre coûterait cher dans les deux
+       * sens : `hasAccess` dit « il a payé, il peut jouer », `isPremium` dit
+       * « il a le forfait Illimité ». Un abonné Accès a le premier sans le
+       * second — le mur de paiement doit le laisser entrer, la carte des
+       * thèmes doit rester fermée.
+       *
+       * Tant que le profil n'est pas chargé, on ne conclut rien : `loading`
+       * est là pour ça. Répondre « non » par défaut ferait clignoter le mur
+       * de paiement devant un abonné à chaque rechargement de page.
+       */
+      hasAccess: Boolean(profile?.billing?.hasAccess ?? profile?.user?.hasAccess),
+      plan: profile?.billing?.plan || null,
+      planLabel: profile?.billing?.planLabel || null,
+      // Le portefeuille tel que le serveur l'a renvoyé avec le profil. Les
+      // écrans de jeu reçoivent une version plus fraîche à chaque partie ;
+      // celle-ci sert d'en-tête et de valeur de départ.
+      credits: profile?.billing?.credits || null,
+      billing: profile?.billing || null,
       isAuthenticated: Boolean(session?.accessToken),
       loading,
       signup,
