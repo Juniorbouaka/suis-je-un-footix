@@ -74,8 +74,8 @@ export default function Landing() {
         {!hasAccess && (
           <p className="small muted" style={{ marginTop: 14 }}>
             <Icon name="crown" size={13} /> Le jeu fonctionne à l'abonnement — à partir de 2,99 €
-            par mois, un stock de parties à dépenser comme tu veux.{' '}
-            <Link to="/premium">Voir les formules</Link>.
+            par mois, le joueur du jour tous les jours plus des parties pour les archives et les
+            duels. <Link to="/premium">Voir les formules</Link>.
           </p>
         )}
 

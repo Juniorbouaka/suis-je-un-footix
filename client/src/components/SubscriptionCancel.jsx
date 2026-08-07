@@ -106,9 +106,9 @@ export default function SubscriptionCancel() {
             Formule {planLabel || 'mensuelle'}
             {echeance ? `, prochaine échéance le ${echeance}` : ''}. Tu peux résilier à tout
             moment, sans justification et sans nous écrire.{' '}
-            <strong>Rien n'est perdu&nbsp;:</strong> la période déjà payée va à son terme et ton
-            stock de parties reste utilisable jusque-là. Aucun remboursement au prorata, aucun
-            nouveau prélèvement ensuite.
+            <strong>Rien n'est perdu&nbsp;:</strong> la période déjà payée va à son terme — le
+            joueur du jour comme tes parties supplémentaires restent à toi jusque-là. Aucun
+            remboursement au prorata, aucun nouveau prélèvement ensuite.
           </p>
 
           {confirme ? (

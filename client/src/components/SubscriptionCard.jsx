@@ -38,8 +38,8 @@ export default function SubscriptionCard() {
           <div>
             <h2 style={{ fontSize: 18, marginBottom: 4 }}>Aucun abonnement</h2>
             <p className="muted small" style={{ margin: 0 }}>
-              Jouer demande une formule : un stock de parties chaque mois, à dépenser en partie du
-              jour, en archives ou en duels.
+              Jouer demande une formule : le joueur mystère du jour tous les jours, plus des
+              parties supplémentaires chaque mois pour les archives et les duels.
             </p>
           </div>
           <Link to="/premium" className="btn">

@@ -178,8 +178,9 @@ export default function Premium() {
         <h1 style={{ fontSize: 30, margin: '14px 0 8px' }}>Choisis ta formule</h1>
         <p className="muted" style={{ maxWidth: 560, margin: '0 auto' }}>
           Chaque mot que tu proposes est évalué par une IA, et chaque évaluation se paie. Le jeu
-          fonctionne donc à l'abonnement : un stock de parties chaque mois, et tu choisis toi-même
-          comment le dépenser — partie du jour, archives ou duels.
+          fonctionne donc à l'abonnement. Les deux formules donnent le joueur mystère du jour,
+          tous les jours — ce qui les sépare, c'est le nombre de parties en plus : archives à
+          rejouer et duels.
         </p>
       </div>
 
