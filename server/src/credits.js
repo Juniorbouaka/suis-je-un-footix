@@ -4,13 +4,24 @@ import { config, creditsForPlan, isAdminEmail } from './config.js';
 /**
  * Le grand livre des crédits.
  *
- * Une partie coûte un crédit. Le forfait en donne un stock chaque mois, et à
- * zéro on attend la recharge. C'est le seul compteur du jeu : il a remplacé
- * le quota de duels quotidiens ET le quota de parties d'entraînement, qui
- * disaient tous les deux « tu as assez joué » sans jamais s'accorder sur le
- * moment.
+ * Ce que compte ce module, ce sont les parties EN PLUS du rendez-vous
+ * quotidien. Le joueur mystère du jour est inclus dans l'abonnement et ne
+ * décompte rien : c'est ce qui fait revenir quelqu'un chaque matin, on ne
+ * met pas un péage devant. Rejouer une journée d'archive ou lancer un duel,
+ * en revanche, se paie — ce sont les parties qu'on ajoute.
  *
- * Trois principes tiennent tout le module :
+ * Le solde vit dans DEUX poches, et la distinction est la seule complexité
+ * du module :
+ *
+ *   `credits`           le stock du mois. Remplacé à chaque échéance : un
+ *                       abonnement n'est pas une cagnotte, ce qui n'a pas
+ *                       été joué est perdu.
+ *   `credits_purchased` les parties achetées à l'unité. Ne périment jamais.
+ *
+ * On dépense la première d'abord — vider ce qui expire avant ce qui reste,
+ * c'est ne rien gâcher.
+ *
+ * Quatre principes tiennent le reste :
  *
  *   1. On débite à l'OUVERTURE d'une partie, jamais à chaque proposition.
  *      Un joueur doit savoir ce qu'une partie va lui coûter avant de la
@@ -23,6 +34,9 @@ import { config, creditsForPlan, isAdminEmail } from './config.js';
  *   3. Ce qui n'a pas été servi est remboursé. Si l'évaluateur tombe en panne
  *      ou si le duel ne démarre jamais, le crédit revient. Facturer une
  *      partie qui n'a pas eu lieu, c'est le genre de détail qui fait résilier.
+ *
+ *   4. Ce qui a été acheté ne s'efface pas. Une recharge payée survit à
+ *      toutes les échéances suivantes.
  *
  * Chaque mouvement laisse une ligne dans `credit_events`. C'est ce qui permet
  * de répondre à « j'ai perdu des crédits sans jouer » autrement que par une
@@ -54,8 +68,9 @@ import { config, creditsForPlan, isAdminEmail } from './config.js';
 function row(userId) {
   const u = db
     .prepare(
-      `SELECT id, email, credits, credits_renewed_at, credits_period_end,
-              subscription_plan, is_subscriber, is_premium, premium_until
+      `SELECT id, email, credits, credits_purchased, credits_renewed_at,
+              credits_period_end, subscription_plan, is_subscriber, is_premium,
+              premium_until
          FROM users WHERE id = ?`
     )
     .get(userId);
@@ -138,6 +153,12 @@ export function grantMonthly(userId, reason = 'recharge') {
   const stock = creditsForPlan(u.subscription_plan);
   const delta = stock - u.credits;
 
+  /*
+   * Seule la poche MENSUELLE est écrasée. Les parties achetées à part ne
+   * sont pas touchées : elles ont été payées en plus, elles ne périment
+   * pas, et une recharge qui les emporterait ferait de nous des voleurs
+   * une fois par mois.
+   */
   db.prepare(
     `UPDATE users
         SET credits = ?,
@@ -146,8 +167,38 @@ export function grantMonthly(userId, reason = 'recharge') {
       WHERE id = ?`
   ).run(stock, u.premium_until || null, userId);
 
-  journal(userId, delta, reason, u.subscription_plan, stock);
+  journal(userId, delta, reason, u.subscription_plan, balanceOf(userId));
   return row(userId);
+}
+
+/**
+ * Crédite des parties achetées à l'unité.
+ *
+ * Additif, et dans l'autre poche : c'est ce qui les fait survivre à la
+ * recharge mensuelle. `ref` porte l'identifiant de la session de paiement,
+ * ce qui rend l'opération sûre à rejouer — Stripe renvoie le même événement
+ * plusieurs fois, et créditer deux fois un seul paiement se remarquerait
+ * tôt ou tard du mauvais côté du compte.
+ *
+ * @returns {{ok: boolean, balance: number, credited: number}}
+ */
+export function grantPack(userId, credits, ref, reason = 'recharge-achetee') {
+  if (!(credits > 0)) return { ok: false, balance: balanceOf(userId), credited: 0 };
+
+  const dejaVu = db
+    .prepare('SELECT 1 FROM credit_events WHERE user_id = ? AND ref = ? LIMIT 1')
+    .get(userId, ref);
+
+  if (dejaVu) return { ok: true, balance: balanceOf(userId), credited: 0, alreadyCredited: true };
+
+  db.prepare('UPDATE users SET credits_purchased = credits_purchased + ? WHERE id = ?').run(
+    credits,
+    userId
+  );
+
+  const balance = balanceOf(userId);
+  journal(userId, credits, reason, ref, balance);
+  return { ok: true, balance, credited: credits };
 }
 
 /**
@@ -198,10 +249,16 @@ export function grantOnPlanChange(userId, ancienPlan) {
  * Débite un compte, si le solde le permet.
  *
  * La lecture du solde et l'écriture tiennent dans un seul UPDATE conditionnel
- * (`WHERE credits >= ?`) : c'est SQLite qui garantit qu'on ne peut pas passer
- * sous zéro, pas notre enchaînement d'instructions. Deux propositions
- * envoyées à la même seconde depuis deux onglets ne peuvent donc pas dépenser
- * deux fois le dernier crédit.
+ * (`WHERE credits + credits_purchased >= ?`) : c'est SQLite qui garantit
+ * qu'on ne peut pas passer sous zéro, pas notre enchaînement d'instructions.
+ * Deux propositions envoyées à la même seconde depuis deux onglets ne peuvent
+ * donc pas dépenser deux fois la dernière partie.
+ *
+ * On puise D'ABORD dans le stock mensuel, et seulement ensuite dans les
+ * parties achetées. L'ordre n'est pas indifférent : le stock mensuel périme
+ * à l'échéance, les parties achetées non. Vider la poche qui expire en
+ * premier, c'est ne rien gâcher — l'inverse aurait consommé ce que le joueur
+ * a payé en plus pour laisser expirer ce qu'il avait déjà.
  *
  * @returns {{ok: boolean, balance: number, cost: number}}
  */
@@ -211,8 +268,13 @@ export function spend(userId, cost, reason, ref = null) {
   ensureRecharge(userId);
 
   const res = db
-    .prepare('UPDATE users SET credits = credits - ? WHERE id = ? AND credits >= ?')
-    .run(cost, userId, cost);
+    .prepare(
+      `UPDATE users
+          SET credits = MAX(0, credits - ?),
+              credits_purchased = credits_purchased - MAX(0, ? - credits)
+        WHERE id = ? AND credits + credits_purchased >= ?`
+    )
+    .run(cost, cost, userId, cost);
 
   const balance = balanceOf(userId);
   if (res.changes === 0) return { ok: false, balance, cost };
@@ -232,7 +294,22 @@ export function spend(userId, cost, reason, ref = null) {
 export function refund(userId, amount, reason, ref = null) {
   if (amount <= 0) return balanceOf(userId);
 
-  db.prepare('UPDATE users SET credits = credits + ? WHERE id = ?').run(amount, userId);
+  /*
+   * Le remboursement va dans la poche qui NE PÉRIME PAS.
+   *
+   * On ne sait pas laquelle des deux avait payé — `spend` vide la mensuelle
+   * en premier, mais elle pouvait être à sec. Plutôt que de tenir un
+   * registre pour trancher, on rend dans la meilleure des deux : le doute
+   * profite au joueur, et il ne peut rien créer au passage puisqu'on ne
+   * rembourse jamais que ce qui a été prélevé.
+   *
+   * L'inverse — rendre dans la poche mensuelle — aurait pu faire expirer à
+   * la fin du mois une partie achetée qu'on avait débitée par erreur.
+   */
+  db.prepare('UPDATE users SET credits_purchased = credits_purchased + ? WHERE id = ?').run(
+    amount,
+    userId
+  );
   const balance = balanceOf(userId);
   journal(userId, amount, reason, ref, balance);
   return balance;
@@ -275,8 +352,12 @@ export function spendOnce(userId, cost, reason, ref) {
   return spend(userId, cost, reason, ref);
 }
 
+/** Le solde total : stock du mois + parties achetées. */
 export function balanceOf(userId) {
-  return db.prepare('SELECT credits FROM users WHERE id = ?').get(userId)?.credits ?? 0;
+  const u = db
+    .prepare('SELECT credits, credits_purchased FROM users WHERE id = ?')
+    .get(userId);
+  return (u?.credits ?? 0) + (u?.credits_purchased ?? 0);
 }
 
 /* ------------------------------------------------------------------ *
@@ -295,13 +376,26 @@ export function creditSummary(userId) {
   if (!u) return null;
 
   return {
-    balance: u.credits,
+    balance: u.credits + u.credits_purchased,
+    // Le détail des deux poches : l'une périme à l'échéance, l'autre non, et
+    // le relevé doit pouvoir le dire plutôt que de laisser croire que tout
+    // disparaîtra le 1er du mois.
+    fromPlan: u.credits,
+    purchased: u.credits_purchased,
     monthly: creditsForPlan(u.subscription_plan),
     plan: u.subscription_plan || null,
-    // Ce que coûte chaque format, pour que l'interface annonce le prix avant
-    // le clic plutôt que d'ouvrir une partie qui sera refusée.
+    /*
+     * Ce que coûte chaque format, pour que l'interface annonce le prix avant
+     * le clic plutôt que d'ouvrir une partie qui sera refusée.
+     *
+     * Le mot du jour n'y figure pas : il est inclus dans l'abonnement et ne
+     * décompte rien. C'est la promesse principale de l'offre, elle a sa
+     * propre clé pour que l'écran puisse l'annoncer sans la déduire d'une
+     * absence.
+     */
+    dailyIncluded: true,
     costs: {
-      solo: config.credits.costSolo,
+      archive: config.credits.costArchive,
       duel: config.credits.costDuel,
       duelInvite: config.credits.costDuelInvite,
     },

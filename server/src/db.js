@@ -174,6 +174,21 @@ addColumn('users', 'credits', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('users', 'credits_renewed_at', 'TEXT');
 addColumn('users', 'credits_period_end', 'TEXT');
 
+/*
+ * Les parties ACHETÉES, dans leur propre poche.
+ *
+ * Deux colonnes et non une, parce que les deux stocks n'obéissent pas à la
+ * même règle : `credits` est remplacé à chaque échéance — un abonnement
+ * n'est pas une cagnotte, ce qui n'a pas été joué ce mois-ci est perdu —
+ * tandis que `credits_purchased` ne périme jamais. Ce qui a été payé en
+ * plus est payé pour de bon.
+ *
+ * Les additionner dans une seule colonne aurait fait disparaître les
+ * parties achetées à la première recharge mensuelle : encaisser puis
+ * effacer, c'est le litige assuré, et il aurait été mérité.
+ */
+addColumn('users', 'credits_purchased', 'INTEGER NOT NULL DEFAULT 0');
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS credit_events (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

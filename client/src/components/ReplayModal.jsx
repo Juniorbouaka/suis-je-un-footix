@@ -54,17 +54,20 @@ function memoriser() {
 }
 
 /** Le texte, calé sur ce que le joueur vient de vivre. */
-function texteFin(outcome, { mensuel, recharge }) {
-  const stock = mensuel ? `Tes ${mensuel} parties du mois sont jouées` : 'Ton stock est épuisé';
-  const attente = recharge ? ` Il se recharge le ${recharge}.` : '';
+function texteFin(outcome, { recharge }) {
+  // Ce qui est acquis d'abord, ce qui s'achète ensuite. Un joueur qui vient
+  // de terminer doit repartir en sachant que demain est déjà payé.
+  const demain = `Le joueur de demain est compris dans ton abonnement.${
+    recharge ? ` Ta réserve, elle, se recharge le ${recharge}.` : ''
+  }`;
 
   if (outcome === 'found') {
-    return `Bien joué — et c'était la dernière. ${stock}.${attente} La formule Illimité en donne près de quatre fois plus, à dépenser comme tu veux.`;
+    return `Bien joué. Tu n'as plus de parties en réserve pour enchaîner. ${demain} Pour rejouer tout de suite, prends des parties à l'unité ou passe à l'Illimité.`;
   }
   if (outcome === 'exhausted') {
-    return `Le mystère a tenu bon, et tu n'as plus de quoi retenter. ${stock}.${attente} La formule Illimité en donne près de quatre fois plus.`;
+    return `Le mystère a tenu bon, et il ne te reste rien pour te refaire aujourd'hui. ${demain} Pour rejouer tout de suite, prends des parties à l'unité ou passe à l'Illimité.`;
   }
-  return `Partie abandonnée, et c'était la dernière. ${stock}.${attente} La formule Illimité en donne près de quatre fois plus.`;
+  return `Partie abandonnée, et ta réserve est vide. ${demain} Pour rejouer tout de suite, prends des parties à l'unité ou passe à l'Illimité.`;
 }
 
 export default function ReplayModal({
@@ -79,7 +82,6 @@ export default function ReplayModal({
   const [open, setOpen] = useState(false);
 
   const solde = credits?.balance ?? null;
-  const mensuel = credits?.monthly ?? null;
   const recharge = credits?.nextRecharge
     ? new Date(credits.nextRecharge).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
     : null;
@@ -113,17 +115,17 @@ export default function ReplayModal({
       open={open}
       onClose={fermer}
       kicker="Fin de partie"
-      titre="Plus de parties"
-      texte={texteFin(outcome, { mensuel, recharge })}
+      titre="Envie d’enchaîner ?"
+      texte={texteFin(outcome, { recharge })}
       avantages={[
-        '75 parties par mois au lieu de 20',
+        '100 parties par mois au lieu de 20',
         'Archives, duels et revanches sans compter',
         'Aucune publicité, nulle part',
         'Statistiques détaillées et thèmes de terrain',
       ]}
-      cta="Passer à l’Illimité"
-      dismiss="Non merci, j’attends la recharge"
-      note="Une seule partie compte au classement chaque jour, quelle que soit ta formule : payer achète du temps de jeu, jamais des points."
+      cta="Voir les formules et les recharges"
+      dismiss="Non merci, je reviens demain"
+      note="Le joueur du jour est compris dans les deux formules, et une seule partie compte au classement chaque jour : payer achète du temps de jeu, jamais des points."
     />
   );
 }

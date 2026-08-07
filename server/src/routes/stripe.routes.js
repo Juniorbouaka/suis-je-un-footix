@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { db } from '../db.js';
 import { config } from '../config.js';
-import { requireAuth } from '../auth.js';
+import { requireAuth, requirePaidAccess } from '../auth.js';
 import {
   PLANS,
   alreadyProcessed,
@@ -10,10 +10,12 @@ import {
   billingSummary,
   markProcessed,
 } from '../billing.js';
+import { creditSummary, grantPack } from '../credits.js';
 import {
   cancelSubscriptionAtPeriodEnd,
   changeSubscriptionPrice,
   createCheckoutSession,
+  createCreditPackSession,
   createDonationSession,
   getCheckoutSession,
   getSubscription,
@@ -150,6 +152,43 @@ stripeRouter.post('/subscribe', requireAuth, limiter, async (req, res) => {
 });
 
 /* -------------------------------------------------------------- *
+ *  POST /api/stripe/credits — acheter une recharge de parties
+ *
+ *  Un paiement ponctuel, sans engagement, pour qui a vidé son stock et
+ *  ne veut pas attendre l'échéance. Réservé aux abonnés : c'est un
+ *  complément à l'abonnement, pas une façon de contourner l'entrée —
+ *  vendre des parties à quelqu'un qui ne peut pas jouer serait lui
+ *  vendre quelque chose d'inutilisable.
+ * -------------------------------------------------------------- */
+
+stripeRouter.post('/credits', requirePaidAccess, limiter, async (req, res) => {
+  if (!stripeUsable()) {
+    return res.status(503).json({ error: indisponible('credits (verrou)') });
+  }
+
+  const pack = config.credits.packs.find((p) => p.key === req.body?.pack);
+  if (!pack) return res.status(400).json({ error: 'Recharge inconnue.' });
+
+  try {
+    const { url } = await createCreditPackSession({
+      pack: pack.key,
+      credits: pack.credits,
+      amountCents: pack.cents,
+      userId: req.user.id,
+      email: req.user.email,
+      successUrl: `${config.publicUrl}/premium/merci`,
+      cancelUrl: `${config.publicUrl}/premium?annule=1`,
+    });
+
+    res.json({ url });
+  } catch (err) {
+    console.error('[stripe] session de recharge :', err.message);
+    if (!stripeUsable()) return res.status(503).json({ error: indisponible('credits (echec appel)') });
+    res.status(502).json({ error: "Stripe n'a pas pu ouvrir le paiement. Réessaie." });
+  }
+});
+
+/* -------------------------------------------------------------- *
  *  POST /api/stripe/confirm — au retour de Stripe
  *
  *  Le webhook fait foi mais peut avoir quelques secondes de retard :
@@ -168,7 +207,30 @@ stripeRouter.post('/confirm', requireAuth, limiter, async (req, res) => {
     if (session.client_reference_id && session.client_reference_id !== req.user.id) {
       return res.status(403).json({ error: 'Cette session appartient à un autre compte.' });
     }
-    if (session.payment_status !== 'paid' || !session.subscription) {
+    if (session.payment_status !== 'paid') {
+      return res.status(409).json({ error: "Le paiement n'est pas finalisé." });
+    }
+
+    /*
+     * Recharge de parties : on crédite ici aussi, sans attendre le webhook.
+     *
+     * Les deux chemins mènent au même `grantPack`, qui porte l'identifiant
+     * de session en référence : celui des deux qui arrive en second ne
+     * crédite rien. C'est exactement la redondance qu'on veut pour de
+     * l'argent déjà encaissé — le joueur voit ses parties tout de suite, et
+     * le webhook rattrape le cas où il ferme l'onglet avant le retour.
+     */
+    if (session.metadata?.kind === 'credits') {
+      const credits = Number(session.metadata.credits);
+      const res2 = grantPack(req.user.id, credits, `achat:${session.id}`);
+      return res.json({
+        credited: res2.credited,
+        alreadyCredited: Boolean(res2.alreadyCredited),
+        credits: creditSummary(req.user.id),
+      });
+    }
+
+    if (!session.subscription) {
       return res.status(409).json({ error: "Le paiement n'est pas finalisé." });
     }
 
@@ -335,8 +397,36 @@ export async function stripeWebhook(req, res) {
   try {
     switch (event.type) {
       case 'checkout.session.completed': {
-        // Don ponctuel : on marque l'encaissement, rien d'autre à faire.
         if (objet.mode === 'payment') {
+          /*
+           * Deux paiements ponctuels partagent ce chemin, et il faut les
+           * distinguer avant tout : une recharge de parties porte
+           * `metadata.kind = 'credits'`, un don n'a pas de métadonnées.
+           *
+           * C'est le webhook qui crédite, jamais le retour du navigateur :
+           * lui peut être fabriqué, rejoué, ou ne jamais arriver si le
+           * joueur ferme l'onglet après avoir payé. `grantPack` porte
+           * l'identifiant de session en référence et refuse de créditer
+           * deux fois le même paiement.
+           */
+          if (objet.metadata?.kind === 'credits') {
+            const userId = objet.metadata.userId || objet.client_reference_id;
+            const credits = Number(objet.metadata.credits);
+
+            if (!userId || !(credits > 0)) {
+              console.warn(`[stripe] recharge sans compte ou sans quantité : ${objet.id}`);
+              break;
+            }
+
+            const res = grantPack(userId, credits, `achat:${objet.id}`);
+            console.log(
+              `[stripe] recharge ${objet.id} : ${res.credited} parties creditees ` +
+                `(solde ${res.balance})${res.alreadyCredited ? ' — deja traitee' : ''}`
+            );
+            break;
+          }
+
+          // Don ponctuel : on marque l'encaissement, rien d'autre à faire.
           db.prepare(
             "UPDATE donations SET status = 'COMPLETED', captured_at = datetime('now') WHERE order_id = ?"
           ).run(objet.id);

@@ -245,12 +245,12 @@ seul point de passage, aucun événement ajouté demain ne peut lui échapper pa
 répond **402** et non 403 : le client sait alors qu'il ne manque pas un droit mais un
 abonnement, et renvoie vers l'offre.
 
-**Solo** — **15 chances par partie**, pour tout le monde, quel que soit le forfait
+**Solo** — **20 chances par partie**, pour tout le monde, quelle que soit la formule
 (`MAX_ATTEMPTS`). Au-delà, la partie est perdue : le joueur est révélé avec sa fiche, score nul.
 `score = 1000 − 50 × (tentatives − 1) + (3600 − secondes) / 10`, plancher à 100.
 
 Ce que le forfait supérieur achète, c'est le **nombre de parties**, jamais leur longueur : une
-partie à cinquante essais coûte plus de trois fois une partie à quinze, et vendue au même crédit
+partie à cinquante essais coûte plus de trois fois une partie à vingt, et vendue au même crédit
 elle transformerait chaque gros joueur en perte sèche. Deux abonnés qui jouent la même journée
 jouent donc avec le même nombre de balles.
 
@@ -261,11 +261,43 @@ crédits ; sans elle, le tableau classerait les porte-monnaie.
 
 ### Les crédits
 
-Un seul compteur remplace tous les quotas journaliers d'avant. **Une partie coûte un crédit** —
-partie du jour, journée d'archive rejouée ou duel. Une invitation en coûte deux à celui qui
-l'envoie : il paie pour lui et pour son invité, qui n'a besoin de rien pour répondre. Le forfait
-sert un stock chaque mois (`CREDITS_ACCESS`, `CREDITS_UNLIMITED`), **remplacé** et non additionné
-à chaque échéance payée : c'est un abonnement, pas une cagnotte.
+**Le joueur du jour est compris dans les deux formules**, tous les jours, sans rien décompter.
+C'est le rendez-vous du jeu : mettre un compteur devant, c'est faire hésiter quelqu'un avant de
+faire la seule chose qu'on veut le voir faire.
+
+Les crédits servent au **reste** : rejouer une journée d'archive ou lancer un duel coûtent une
+partie. Une invitation en coûte deux à celui qui l'envoie — il paie pour lui et pour son invité,
+qui n'a besoin de rien pour répondre. Le forfait sert un stock chaque mois (`CREDITS_ACCESS`,
+`CREDITS_UNLIMITED`).
+
+Le solde vit dans **deux poches**, et c'est la seule complexité du module :
+
+| | |
+|---|---|
+| `credits` | le stock du mois. **Remplacé** à chaque échéance : un abonnement n'est pas une cagnotte, ce qui n'a pas été joué est perdu. |
+| `credits_purchased` | les parties **achetées à l'unité**. Ne périment jamais. |
+
+On dépense la première d'abord — vider ce qui expire avant ce qui reste, c'est ne rien gâcher —
+et l'UPDATE fait les deux en une seule instruction conditionnelle, donc atomiquement. Les
+additionner dans une seule colonne aurait fait disparaître les parties achetées à la première
+recharge mensuelle : encaisser puis effacer, ce serait un litige mérité.
+
+### Les recharges
+
+Quand la réserve est vide, on peut acheter des parties à l'unité — 10 pour 1,99 €, 30 pour
+4,99 €, 75 pour 9,99 € (`config.credits.packs`). Un paiement **ponctuel** par Stripe, sans
+engagement, réservé aux abonnés : vendre des parties à quelqu'un qui ne peut pas entrer serait
+lui vendre l'inutilisable.
+
+Le prix à la partie y est volontairement plus élevé qu'au forfait (0,20 € contre 0,10 € et
+moins), et **l'écran le dit** plutôt que de laisser quelqu'un empiler les recharges là où passer
+à l'Illimité lui reviendrait moins cher.
+
+Le crédit se fait par deux chemins volontairement redondants — le retour du navigateur et le
+webhook — qui appellent le même `grantPack`. Celui-ci porte l'identifiant de session Stripe en
+référence : le second arrivé ne crédite rien. C'est la redondance qu'on veut pour de l'argent
+déjà encaissé, le joueur voyant ses parties tout de suite et le webhook rattrapant l'onglet
+fermé trop tôt.
 
 Trois principes tiennent `credits.js` :
 
@@ -342,25 +374,37 @@ rentable en attendant. Il n'y a donc plus de forfait gratuit.
 | | |
 |---|---|
 | Encaisseurs | Stripe Checkout (carte, **Apple Pay**, **Google Pay**) · PayPal Subscriptions |
-| **Accès** — 2,99 €/mois | **20 parties par mois** · duels · archives complètes et rejeu |
-| **Illimité** — 9,99 €/mois | **75 parties par mois** · sans publicité · statistiques détaillées · quatre décors de terrain · badge au classement |
+| **Accès** — 2,99 €/mois | le joueur du jour tous les jours · **+20 parties par mois** · duels · archives complètes et rejeu |
+| **Illimité** — 9,99 €/mois | le joueur du jour tous les jours · **+100 parties par mois** · sans publicité · statistiques détaillées · quatre décors de terrain · badge au classement |
+| **Recharges** — 1,99 à 9,99 € | 10, 30 ou 75 parties à l'unité, sans engagement, qui ne périment pas |
 
 L'annuel à 19,99 € a disparu : avec un jeu payant à l'entrée, un troisième prix sur la page
 n'aidait pas à choisir, il faisait hésiter.
 
-**Le calcul qui fixe ces chiffres.** Une proposition coûte ~0,0024 € (Sonnet), l'escalade vers
-Opus sur les joueurs mal reconnus pousse la moyenne autour de 0,004 € ; une partie va jusqu'à
-quinze propositions, soit ~0,06 € au pire. On retient 0,08 € par crédit — la marge d'erreur est
-du bon côté. Stripe prélève 1,5 % + 0,25 €.
+**Le calcul.** Une proposition coûte ~0,0024 € (Sonnet), l'escalade vers Opus sur les joueurs mal
+reconnus pousse la moyenne autour de 0,004 € ; une partie va jusqu'à vingt propositions, soit
+~0,08 € au pire et plutôt 0,04 € au régime réel. Stripe prélève 1,5 % + 0,25 €. Le joueur du jour
+étant compris, il faut compter ~30 parties mensuelles en plus des crédits.
 
-| Forfait | Net encaissé | Coût maximal du stock | Marge plancher |
-|---|---|---|---|
-| Accès (20 crédits) | 2,70 € | 1,60 € | 1,10 € (41 %) |
-| Illimité (75 crédits) | 9,59 € | 6,00 € | 3,59 € (37 %) |
+| Forfait | Net | Parties/mois | Régime réel | Pire cas |
+|---|---|---|---|---|
+| Accès | 2,70 € | 30 + 20 = 50 | 2,00 € → **+0,70 €** | 4,00 € → **−1,30 €** |
+| Illimité | 9,59 € | 30 + 100 = 130 | 5,20 € → **+4,39 €** | 10,40 € → **−0,81 €** |
 
-Au régime réaliste — une partie trouvée tourne autour de dix propositions, pas quinze — les deux
-laissent plutôt 60 %. Le jeu est bénéficiaire dans **tous** les cas, y compris si chaque abonné
-épuise ses quinze chances à chaque partie jusqu'au dernier crédit. C'était la condition à tenir.
+⚠️ **Le pire cas est déficitaire, et c'est assumé.** Un abonné qui jouerait tous les jours *et*
+brûlerait ses vingt essais à chaque partie *et* consommerait tous ses crédits coûterait plus
+qu'il ne paie — les trente parties mensuelles offertes mangent à elles seules 2,40 € au pire, sur
+les 2,70 € que rapporte le forfait Accès. C'est un pari sur le comportement réel, pas une
+garantie arithmétique : au régime observé les deux forfaits gagnent de l'argent, et personne ne
+joue au pire cas tous les jours d'un mois.
+
+Ce qui protège la caisse n'est donc plus le calcul mais **`DAILY_API_BUDGET`**, le plafond
+d'appels quotidiens — c'est lui qu'il faut surveiller, et le tableau de bord admin affiche le
+rapport consommé/distribué pour ça. Les recharges, elles, restent bénéficiaires même au pire cas
+(10 parties coûtent au pire 0,80 € pour 1,71 € nets) : ce sont elles qui compensent le pari.
+
+Si la moyenne réelle dépassait douze propositions par partie, il faudrait revoir l'un des trois
+chiffres : le prix, le stock, ou le nombre d'essais.
 
 **Le changement de formule modifie l'abonnement en cours**, il n'en ouvre pas un second — chez
 Stripe par un changement de prix au prorata (`changeSubscriptionPrice`), chez PayPal par une

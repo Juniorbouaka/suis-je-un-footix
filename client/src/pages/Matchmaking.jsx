@@ -156,7 +156,7 @@ export default function Matchmaking() {
 
       <h1 style={{ fontSize: 26, marginBottom: 6 }}>Mode duel</h1>
       <p className="muted" style={{ marginBottom: 14 }}>
-        Vous cherchez le même joueur mystère, chacun son tour, avec 15 essais chacun. Le premier à
+        Vous cherchez le même joueur mystère, chacun son tour, avec 20 essais chacun. Le premier à
         donner son nom gagne — si personne ne le trouve, c'est match nul.
       </p>
 

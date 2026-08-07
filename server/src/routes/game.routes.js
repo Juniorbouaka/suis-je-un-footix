@@ -16,10 +16,7 @@ import { soloScore, recordSoloWin, readStats, rankFor } from '../scoring.js';
 import { evaluateSolo, listFor } from '../achievements.js';
 import { PITCH_THEMES, DEFAULT_THEME, findTheme, canUseTheme } from '../themes.js';
 import { duelQuota } from '../duels.js';
-import { alreadyPaid, creditSummary, refund, spendOnce } from '../credits.js';
-
-/** Référence du débit d'une partie du jour. Une par joueur et par journée. */
-const refSolo = (date) => `solo:${date}`;
+import { creditSummary } from '../credits.js';
 
 export const gameRouter = Router();
 
@@ -108,13 +105,10 @@ gameRouter.get('/daily-word', requirePaidAccess, async (req, res) => {
     maxAttempts: cap,
     remaining: Math.max(0, cap - guesses.length),
     isPremium: Boolean(req.user.is_premium),
-    // Le portefeuille voyage avec la partie : l'écran doit pouvoir dire « il
-    // te reste 12 parties » sans un second aller-retour, et surtout annoncer
-    // le prix AVANT la première proposition.
+    // Le portefeuille voyage avec la partie. Il ne conditionne PAS cette
+    // partie-ci — le mot du jour est inclus — mais l'écran affiche le solde
+    // en permanence, et il doit pouvoir le faire sans un second aller-retour.
     credits: creditSummary(req.user.id),
-    // Une partie déjà entamée ne sera pas redébitée : le bandeau doit le
-    // dire, sinon un joueur à zéro crédit croirait sa partie perdue.
-    paid: alreadyPaid(req.user.id, refSolo(date)),
     solved: Boolean(result && result.outcome === 'found'),
     surrendered: Boolean(result && result.outcome === 'surrendered'),
     result: result
@@ -154,37 +148,19 @@ gameRouter.post('/guess', requirePaidAccess, guessLimiter, throttlePerSecond, as
   }
 
   /*
-   * Le péage.
+   * Aucun péage ici, et c'est délibéré.
    *
-   * Il est franchi ici, à la première proposition, et non à l'ouverture de
-   * l'écran : regarder la grille du jour ne coûte rien à servir, alors elle
-   * ne coûte rien à consulter. C'est proposer qui appelle l'API et qui se
-   * paie.
+   * Le joueur mystère du jour est INCLUS dans l'abonnement : une partie par
+   * jour, tous les jours, sans rien décompter. C'est le rendez-vous du jeu
+   * et la raison pour laquelle on ouvre le site le matin — mettre un
+   * compteur devant, c'est faire hésiter quelqu'un avant de faire la seule
+   * chose qu'on veut le voir faire.
    *
-   * `spendOnce` porte la référence de la journée : les quatorze propositions
-   * suivantes retrouvent le débit déjà passé et ne prélèvent rien. Une partie
-   * se paie une fois, même si on la reprend le lendemain matin après une
-   * déconnexion.
-   *
-   * Le débit précède volontairement l'appel à Claude. L'ordre inverse —
-   * évaluer puis facturer — laisserait deux onglets ouverts en même temps
-   * dépenser deux fois le dernier crédit, et nous aurions payé les deux
-   * appels. Ce qui suit se charge de rendre le crédit si l'évaluation
-   * n'aboutit pas.
+   * Ce qui se paie en crédits, ce sont les parties EN PLUS : rejouer une
+   * journée d'archive (archive.routes.js), lancer un duel (realtime.js).
+   * L'abonnement a déjà été vérifié en amont par `requirePaidAccess` — la
+   * porte est passée, la partie du jour est comprise dedans.
    */
-  const ref = refSolo(date);
-  const premiereProposition = !alreadyPaid(req.user.id, ref);
-  const paiement = spendOnce(req.user.id, config.credits.costSolo, 'solo', ref);
-
-  if (!paiement.ok) {
-    return res.status(402).json({
-      error:
-        'Plus de crédits. Ton stock se recharge à ta prochaine échéance — ou passe à l’Illimité pour en avoir davantage.',
-      needsCredits: true,
-      credits: creditSummary(req.user.id),
-    });
-  }
-
   const daily = getDailyWord(date);
   const normalized = normalizeWord(check.word);
 
@@ -223,19 +199,10 @@ gameRouter.post('/guess', requirePaidAccess, guessLimiter, throttlePerSecond, as
     if (err.name !== 'EvaluateurIndisponible') throw err;
 
     /*
-     * La panne tombe sur la PREMIÈRE proposition : la partie n'a pas
-     * commencé, donc elle n'est pas due. Le remboursement annule le débit —
-     * la référence retombe à zéro, et la journée redevient payante au
-     * prochain essai (voir alreadyPaid, qui lit le solde et non les lignes).
-     *
-     * Aux propositions suivantes il n'y a rien à rendre : la partie a bien
-     * eu lieu, c'est cette tentative-là qui n'a pas abouti, et elle n'a
-     * consommé aucune chance.
+     * Rien à rembourser : la partie du jour n'a rien coûté. Aucune chance
+     * n'est consommée non plus — le joueur retrouve sa partie intacte et
+     * réessaie quand l'évaluateur répond de nouveau.
      */
-    if (premiereProposition) {
-      refund(req.user.id, paiement.cost, 'remboursement-evaluateur', ref);
-    }
-
     return res.status(503).json({ error: err.message, retryable: true });
   }
   const found = normalized === normalizeWord(daily.word);
@@ -274,16 +241,17 @@ gameRouter.post('/guess', requirePaidAccess, guessLimiter, throttlePerSecond, as
 
     payload.exhausted = true;
     /*
-     * Ce qu'on propose à la fin d'une partie perdue a changé de nature.
+     * Ce qu'on propose à la fin d'une partie perdue.
      *
-     * Avant, on vendait des chances : « quinze aujourd'hui, cinquante avec
-     * l'abonnement ». Ce n'est plus vrai — quinze pour tout le monde. Ce
-     * qu'on peut offrir maintenant, c'est de RECOMMENCER ailleurs : une
-     * journée d'archive, tout de suite, contre un crédit. Le client décide
-     * quoi en faire selon ce qui reste au portefeuille.
+     * On ne vend plus de chances — vingt pour tout le monde — ni la partie
+     * du jour, qui est comprise dans l'abonnement. Ce qu'on peut offrir,
+     * c'est de RECOMMENCER ailleurs tout de suite : une journée d'archive,
+     * contre une partie du stock. Le client décide quoi en faire selon ce
+     * qui reste au portefeuille — et s'il est vide, il proposera une
+     * recharge plutôt que de renvoyer à demain.
      */
     payload.upsell = {
-      canReplay: creditSummary(req.user.id).balance >= config.credits.costSolo,
+      canReplay: creditSummary(req.user.id).balance >= config.credits.costArchive,
       plan: req.user.subscription_plan || null,
     };
     payload.result = {
@@ -372,24 +340,14 @@ gameRouter.post('/surrender', requirePaidAccess, async (req, res) => {
     .get(req.user.id, date).n;
 
   /*
-   * Abandonner sans avoir rien proposé révèle quand même la réponse et la
-   * fiche du joueur — qui coûte un appel si elle n'est pas encore en cache.
-   * C'est une partie consommée, elle se paie comme les autres.
+   * Renoncer ne coûte rien non plus : c'est la même partie du jour, incluse
+   * dans l'abonnement, et elle est de toute façon terminée pour aujourd'hui.
    *
-   * Sans ce débit, la porte de sortie devenait la porte d'entrée : ouvrir,
-   * abandonner, lire la réponse, recommencer demain, sans jamais dépenser un
-   * crédit. `spendOnce` reconnaît la partie déjà payée si le joueur avait
-   * proposé quelque chose avant de renoncer — on ne facture pas deux fois.
+   * Le contournement qu'on redoutait — ouvrir, abandonner, lire la réponse
+   * sans jamais payer — n'en est plus un : il n'y avait rien à contourner.
+   * La seule limite qui tienne ici est celle d'UNE partie du jour par jour,
+   * et elle est portée par `daily_results`, pas par le portefeuille.
    */
-  const paiement = spendOnce(req.user.id, config.credits.costSolo, 'solo', refSolo(date));
-  if (!paiement.ok) {
-    return res.status(402).json({
-      error: 'Plus de crédits — même pour voir la réponse. Ton stock se recharge à ta prochaine échéance.',
-      needsCredits: true,
-      credits: creditSummary(req.user.id),
-    });
-  }
-
   db.prepare(
     `INSERT OR REPLACE INTO daily_results (user_id, date, attempts, seconds, score, surrendered, outcome)
      VALUES (?, ?, ?, ?, 0, 1, 'surrendered')`

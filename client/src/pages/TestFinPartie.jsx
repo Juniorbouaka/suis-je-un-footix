@@ -189,7 +189,7 @@ export default function TestFinPartie() {
         guesses={guesses}
         unlocked={issue === 'found' ? MEDAILLES : []}
         puzzleNumber={212}
-        maxAttempts={15}
+        maxAttempts={20}
         isPremium={premium}
         credits={portefeuille}
         serie={issue === 'found' ? 7 : 0}

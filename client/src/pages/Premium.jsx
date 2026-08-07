@@ -29,18 +29,18 @@ import { detailPaiement, libellePaiement, portefeuille } from '../lib/paiement.j
 /* Ce que chaque forfait ouvre. `credits` est rempli par le serveur. */
 const DETAIL_FORMULES = {
   access: {
-    argument: 'De quoi jouer sa partie du jour, tous les jours du mois.',
+    argument: 'Le rendez-vous quotidien, plus de quoi rejouer deux ou trois fois par semaine.',
     avantages: [
-      'Le joueur mystère du jour, tous les jours',
       'Les duels, en aléatoire comme sur invitation',
       'Toutes les archives, et le droit de les rejouer',
+      'Parties supplémentaires rechargées chaque mois',
     ],
     manque: ['Publicité affichée', 'Thèmes de terrain et statistiques détaillées réservés'],
   },
   unlimited: {
-    argument: 'Pour enchaîner : la partie du jour, les archives, les duels, sans compter.',
+    argument: 'Pour enchaîner : archives et duels tous les jours, sans compter.',
     avantages: [
-      'Presque quatre fois plus de parties',
+      'Cinq fois plus de parties supplémentaires',
       'Aucune publicité, nulle part',
       'Statistiques détaillées et historique complet',
       'Quatre thèmes de terrain supplémentaires',
@@ -53,22 +53,22 @@ const DETAIL_FORMULES = {
 /* Ce qui vaut pour les deux, et qui répond à « qu'est-ce que je paie ? ». */
 const COMMUN = [
   {
-    icon: 'target',
-    titre: '15 chances par partie',
+    icon: 'clock',
+    titre: 'Le joueur du jour, tous les jours',
     texte:
-      'Pour tout le monde, quel que soit le forfait. Ce qu’on achète, c’est le nombre de parties — jamais un avantage à l’intérieur d’une partie.',
+      'Compris dans les deux formules, sans rien décompter. C’est le rendez-vous du jeu : il ne se paie pas à l’unité.',
+  },
+  {
+    icon: 'target',
+    titre: '20 chances par partie',
+    texte:
+      'Pour tout le monde, quelle que soit la formule. Ce qu’on achète, c’est le nombre de parties — jamais un avantage à l’intérieur d’une partie.',
   },
   {
     icon: 'swords',
-    titre: 'Duels illimités, dans la limite du stock',
+    titre: 'Duels et archives à volonté',
     texte:
-      'Un duel coûte une partie. Sur invitation, l’hôte paie pour deux : tu peux faire jouer un ami qui n’a plus rien.',
-  },
-  {
-    icon: 'book',
-    titre: 'Toutes les archives',
-    texte:
-      'Chaque journée manquée redevient une partie complète. Rejouer coûte une partie, consulter ne coûte rien.',
+      'Dans la limite de tes parties supplémentaires : un duel ou une journée d’archive en coûte une. Sur invitation, l’hôte paie pour deux — tu peux faire jouer un ami qui n’a plus rien.',
   },
   {
     icon: 'chart',
@@ -79,7 +79,7 @@ const COMMUN = [
 ];
 
 export default function Premium() {
-  const { isAuthenticated, hasAccess, plan: planActuel, refreshProfile } = useAuth();
+  const { isAuthenticated, hasAccess, isPremium, plan: planActuel, refreshProfile } = useAuth();
   const [params] = useSearchParams();
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -140,6 +140,26 @@ export default function Premium() {
       // Une clé refusée retire la carte de l'offre : on la relit pour que le
       // bouton s'efface au profit de PayPal, sans recharger la page.
       queryClient.invalidateQueries({ queryKey: ['billing-offer'] });
+    }
+  };
+
+  /**
+   * Achète une recharge de parties.
+   *
+   * Paiement ponctuel : on quitte le site vers Stripe, et c'est le webhook
+   * qui crédite au retour. Rien n'est ajouté ici — le navigateur ne décide
+   * pas de ce qui atterrit sur un compte.
+   */
+  const acheterRecharge = async (packKey) => {
+    setBusy(`pack:${packKey}`);
+    setError('');
+    setMessage('');
+    try {
+      const { data } = await api.post('/stripe/credits', { pack: packKey });
+      window.location.href = data.url;
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy('');
     }
   };
 
@@ -218,10 +238,17 @@ export default function Premium() {
                 </div>
                 <div className="plan-period muted small">{plan.period}</div>
 
-                {/* Le chiffre qui décide. Il est plus gros que le reste
-                    parce que c'est lui qu'on compare d'une carte à l'autre. */}
+                {/* Ce qui est acquis dans les deux cas vient EN PREMIER :
+                    c'est la promesse principale, et la placer sous le prix
+                    évite qu'on croie payer uniquement des suppléments. */}
+                <div className="plan-included">
+                  <Icon name="check" size={14} /> Le joueur du jour, tous les jours
+                </div>
+
+                {/* Le chiffre qui décide entre les deux cartes. Il est plus
+                    gros que le reste parce que c'est lui qu'on compare. */}
                 <div className="plan-credits">
-                  <strong className="mono">{plan.credits}</strong> parties par mois
+                  <strong className="mono">+{plan.credits}</strong> parties par mois
                 </div>
                 <p className="small muted" style={{ margin: '4px 0 0' }}>
                   {detail.argument}
@@ -298,6 +325,55 @@ export default function Premium() {
         <div className="alert alert-error" style={{ marginBottom: 18 }}>
           {error}
         </div>
+      )}
+
+      {/*
+        Les recharges — pour qui a déjà un abonnement et a vidé sa réserve.
+        Elles ne s'affichent qu'aux abonnés : vendre des parties à quelqu'un
+        qui ne peut pas encore jouer serait lui vendre l'inutilisable, et le
+        serveur les refuserait de toute façon.
+      */}
+      {hasAccess && (offer?.packs || []).length > 0 && (
+        <section id="recharges" className="card" style={{ marginBottom: 22 }}>
+          <h2 style={{ fontSize: 18, marginBottom: 4 }}>
+            <Icon name="target" size={16} /> Prendre des parties à l'unité
+          </h2>
+          <p className="muted small" style={{ marginTop: 0 }}>
+            Sans engagement, et <strong>elles ne périment pas</strong> : ce que tu n'auras pas joué
+            ce mois-ci reste sur ton compte le mois suivant. Le joueur du jour, lui, reste compris
+            dans ton abonnement — ces parties servent aux archives et aux duels.
+          </p>
+
+          <div className="pack-grid">
+            {offer.packs.map((pack) => (
+              <button
+                key={pack.key}
+                className="pack"
+                disabled={Boolean(busy)}
+                onClick={() => acheterRecharge(pack.key)}
+              >
+                <span className="pack-credits mono">{pack.credits}</span>
+                <span className="pack-label">parties</span>
+                <span className="pack-price">
+                  {busy === `pack:${pack.key}` ? 'Un instant…' : `${pack.price} €`}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/*
+            Le dire nous-mêmes plutôt que de le laisser découvrir : à l'unité,
+            la partie coûte deux fois le prix du forfait. Quelqu'un qui empile
+            les recharges tous les mois se fait avoir en silence, et il finit
+            par s'en apercevoir — ce jour-là il ne se réabonne pas.
+          */}
+          {!isPremium && (
+            <p className="small muted" style={{ marginBottom: 0 }}>
+              <Icon name="alert" size={13} /> Si ça t'arrive tous les mois, l'Illimité revient moins
+              cher : 100 parties pour 9,99 € au lieu de 75 à l'unité pour le même prix.
+            </p>
+          )}
+        </section>
       )}
 
       {/* Ce qui vaut pour les deux formules : on l'affiche APRÈS les prix.

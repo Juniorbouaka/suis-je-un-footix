@@ -177,7 +177,7 @@ archiveRouter.get('/archive/:date', requirePaidAccess, async (req, res) => {
     // déjà entamée reste jouable même à zéro crédit : elle est payée.
     canPlay:
       alreadyPaid(req.user.id, refArchive(date)) ||
-      creditSummary(req.user.id).balance >= config.credits.costSolo,
+      creditSummary(req.user.id).balance >= config.credits.costArchive,
     credits: creditSummary(req.user.id),
     // Une journée déjà entamée ne consomme plus de crédit : le bandeau doit
     // le dire, sinon un joueur à zéro croirait sa partie perdue.
@@ -248,7 +248,7 @@ archiveRouter.post(
      */
     const ref = refArchive(date);
     const premiereProposition = !alreadyPaid(req.user.id, ref);
-    const paiement = spendOnce(req.user.id, config.credits.costSolo, 'archive', ref);
+    const paiement = spendOnce(req.user.id, config.credits.costArchive, 'archive', ref);
 
     if (!paiement.ok) {
       return res.status(402).json({
@@ -374,7 +374,7 @@ archiveRouter.post('/archive/:date/surrender', requirePaidAccess, async (req, re
    * première proposition : renoncer en cours de route ne coûte pas un
    * second crédit.
    */
-  const paiement = spendOnce(req.user.id, config.credits.costSolo, 'archive', refArchive(date));
+  const paiement = spendOnce(req.user.id, config.credits.costArchive, 'archive', refArchive(date));
   if (!paiement.ok) {
     return res.status(402).json({
       error: 'Plus de crédits — même pour voir la réponse. Ton stock se recharge à ta prochaine échéance.',
@@ -423,7 +423,7 @@ archiveRouter.delete('/archive/:date/replay', requirePaidAccess, (req, res) => {
     archiveGuesses(req.user.id, date).length > 0 || Boolean(archiveResult(req.user.id, date));
 
   if (entamee) {
-    const paiement = spend(req.user.id, config.credits.costSolo, 'archive-recommence', refArchive(date));
+    const paiement = spend(req.user.id, config.credits.costArchive, 'archive-recommence', refArchive(date));
     if (!paiement.ok) {
       return res.status(402).json({
         error: 'Recommencer cette journée coûte un crédit, et il ne t’en reste plus.',

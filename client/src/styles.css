@@ -2009,10 +2009,19 @@ a:hover {
  *  l'autre, et celui qu'on cherche du regard avant de cliquer.
  * ------------------------------------------------------------------ */
 
-.plan-credits {
+/* Ce qui est acquis dans les deux formules. Discret mais au-dessus du
+   chiffre qui les sépare : d'abord ce qu'on a, ensuite ce qui varie. */
+.plan-included {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--green-neon);
+}
+
+.plan-credits {
+  margin-top: 6px;
   font-size: 16px;
   font-weight: 650;
 }
@@ -2109,6 +2118,58 @@ a:hover {
 
 .credit-delta.plus {
   color: var(--green-neon);
+}
+
+/* Les recharges. Trois cartes-boutons, du même gabarit : on compare un
+   nombre de parties et un prix, rien d'autre n'a à entrer dans le choix. */
+.pack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.pack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 16px 12px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.pack:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--green-neon) 55%, transparent);
+  transform: translateY(-2px);
+}
+
+.pack:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.pack-credits {
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--green-neon);
+}
+
+.pack-label {
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.pack-price {
+  margin-top: 8px;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .subscription-card.premium {

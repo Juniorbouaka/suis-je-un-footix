@@ -39,7 +39,7 @@ export default function ResultCard({
   guesses = [],
   unlocked = [],
   puzzleNumber,
-  maxAttempts = 15,
+  maxAttempts = 20,
   isPremium = false,
   credits = null,
   serie = 0,
@@ -166,13 +166,16 @@ function jour(iso) {
 /**
  * Ce qu'il reste à jouer, tout de suite.
  *
- * Le joueur vient de finir sa partie : la question suivante est « est-ce que
- * je peux en refaire une ? », et le solde y répond sans détour. Un compteur
- * qui affiche zéro est plus honnête qu'un bouton qui mènerait à un refus.
+ * Le joueur vient de finir sa partie du jour : la question suivante est
+ * « est-ce que je peux en refaire une ? », et le solde y répond sans détour.
+ * Un compteur qui affiche zéro est plus honnête qu'un bouton qui mènerait à
+ * un refus.
  *
- * À zéro, ce qu'on propose dépend du forfait, et la distinction compte :
- * proposer l'Illimité à quelqu'un qui l'a déjà, c'est lui vendre ce qu'il
- * paie. Celui-là n'a rien à acheter, il a une date à attendre.
+ * À zéro, la réponse n'est plus « reviens demain » : c'est le sujet de cet
+ * encart. Le rendez-vous du lendemain est acquis quoi qu'il arrive — il est
+ * compris dans l'abonnement — et pour jouer TOUT DE SUITE il y a une
+ * recharge. On propose donc les deux, dans cet ordre : ce qui est déjà
+ * gagné, puis ce qui s'achète.
  */
 function ReplayPanel({ credits, isPremium }) {
   const restantes = credits?.balance ?? 0;
@@ -185,14 +188,16 @@ function ReplayPanel({ credits, isPremium }) {
       </span>
       <div className="grow">
         <div className="replay-panel-title">
-          {restantes > 0 ? 'Envie de rejouer ?' : 'Ton stock est épuisé'}
+          {restantes > 0 ? 'Envie de rejouer ?' : 'Plus de parties en réserve'}
         </div>
         <p className="small muted" style={{ margin: '2px 0 0' }}>
           {restantes > 0
-            ? `Il te reste ${restantes} partie${restantes > 1 ? 's' : ''} ce mois-ci — une journée d'archive se rejoue tout de suite, hors classement.`
-            : isPremium
-              ? `Tes ${credits?.monthly ?? ''} parties du mois sont jouées${recharge ? ` — ton stock se recharge le ${recharge}` : ''}.`
-              : `Tes ${credits?.monthly ?? ''} parties du mois sont jouées${recharge ? ` — recharge le ${recharge}` : ''}. La formule Illimité en donne bien plus.`}
+            ? `Il te reste ${restantes} partie${restantes > 1 ? 's' : ''} en plus — une journée d'archive se rejoue tout de suite, hors classement.`
+            : `Le joueur de demain t'attend, il est compris dans ton abonnement.${
+                recharge ? ` Ta réserve se recharge le ${recharge}.` : ''
+              } Pour rejouer maintenant, tu peux prendre des parties à l'unité${
+                isPremium ? '' : " ou passer à l'Illimité"
+              }.`}
         </p>
       </div>
       {restantes > 0 ? (
@@ -200,11 +205,9 @@ function ReplayPanel({ credits, isPremium }) {
           Choisir une journée
         </Link>
       ) : (
-        !isPremium && (
-          <Link to="/premium" className="btn btn-sm">
-            Voir l'Illimité
-          </Link>
-        )
+        <Link to="/premium#recharges" className="btn btn-sm">
+          Prendre des parties
+        </Link>
       )}
     </div>
   );

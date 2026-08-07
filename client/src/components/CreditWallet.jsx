@@ -24,7 +24,11 @@ import Icon from './Icon.jsx';
    plutôt qu'à la source : le journal doit rester lisible par nous, et
    l'écran par le joueur. */
 const MOTIFS = {
+  // « solo » n'apparaît plus dans les nouveaux mouvements — la partie du
+  // jour est incluse — mais les anciens relevés le portent encore, et un
+  // motif brut au milieu d'un historique fait tache.
   solo: 'Partie du jour',
+  'recharge-achetee': 'Recharge achetée',
   archive: 'Journée d’archive',
   'archive-recommence': 'Journée recommencée',
   duel: 'Duel',
@@ -72,36 +76,47 @@ export default function CreditWallet() {
   if (!hasAccess) return null;
 
   const solde = vivant?.balance ?? 0;
+  const duMois = vivant?.fromPlan ?? 0;
+  const achetees = vivant?.purchased ?? 0;
   const mensuel = vivant?.monthly ?? 0;
   const recharge = jour(vivant?.nextRecharge);
   const mouvements = data?.history || [];
-  // La jauge : ce qu'il reste sur ce qui a été servi. Bornée à 100 %, parce
-  // qu'un changement de formule en cours de mois peut donner un solde
-  // supérieur au stock de l'ancienne formule pendant quelques secondes.
-  const part = mensuel > 0 ? Math.min(100, Math.round((solde / mensuel) * 100)) : 0;
+  // La jauge ne montre que la poche MENSUELLE : c'est la seule qui se vide
+  // et se remplit au rythme d'un mois. Y mêler les parties achetées ferait
+  // une barre qui dépasse son propre maximum.
+  const part = mensuel > 0 ? Math.min(100, Math.round((duMois / mensuel) * 100)) : 0;
 
   return (
     <section id="portefeuille" className="card" style={{ marginBottom: 18 }}>
       <div className="row row-between wrap" style={{ marginBottom: 14, gap: 10 }}>
         <h2 style={{ fontSize: 18, margin: 0 }}>
-          <Icon name="target" size={16} /> Ton stock de parties
+          <Icon name="target" size={16} /> Tes parties supplémentaires
         </h2>
-        {!isPremium && (
-          <Link to="/premium" className="btn btn-sm btn-ghost">
-            Passer à l'Illimité
-          </Link>
-        )}
+        <Link to="/premium#recharges" className="btn btn-sm btn-ghost">
+          {isPremium ? 'Prendre des parties' : 'Recharger ou passer à l’Illimité'}
+        </Link>
       </div>
+
+      {/* La promesse acquise, avant le compteur : le rendez-vous quotidien
+          ne dépend d'aucun solde, et c'est la première chose à savoir en
+          arrivant sur cet écran. */}
+      <p className="small" style={{ marginTop: 0, marginBottom: 14 }}>
+        <Icon name="check" size={13} /> Le joueur mystère du jour est compris dans ton abonnement,
+        tous les jours, sans rien décompter.
+      </p>
 
       <div className="row row-between wrap" style={{ gap: 10, marginBottom: 8 }}>
         <div>
           <span className="stat-value" style={{ fontSize: 30 }}>
             {solde}
           </span>{' '}
-          <span className="muted">partie{solde > 1 ? 's' : ''} sur {mensuel}</span>
+          <span className="muted">
+            partie{solde > 1 ? 's' : ''} en réserve
+            {achetees > 0 ? ` — dont ${achetees} achetée${achetees > 1 ? 's' : ''}` : ''}
+          </span>
         </div>
         <span className="small muted">
-          {recharge ? `Recharge le ${recharge}` : 'Recharge tous les mois'}
+          {duMois}/{mensuel} du mois{recharge ? ` · recharge le ${recharge}` : ''}
         </span>
       </div>
 
@@ -112,9 +127,11 @@ export default function CreditWallet() {
       </div>
 
       <p className="small muted" style={{ marginTop: 10, marginBottom: 0 }}>
-        Une partie du jour, une journée d'archive ou un duel coûtent une partie du stock. Une
-        invitation en coûte deux — tu offres celle de ton adversaire. Reprendre une partie déjà
-        commencée ne coûte rien.
+        Une journée d'archive rejouée ou un duel coûtent une partie. Une invitation en coûte deux —
+        tu offres celle de ton adversaire. Reprendre une partie déjà commencée ne coûte rien.
+        {achetees > 0
+          ? ' Les parties achetées ne périment pas : elles restent après la recharge du mois.'
+          : ''}
       </p>
 
       <h3 style={{ fontSize: 15, margin: '20px 0 8px' }}>Tes derniers mouvements</h3>

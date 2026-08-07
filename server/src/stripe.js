@@ -276,6 +276,60 @@ export async function createDonationSession({ amountCents, successUrl, cancelUrl
 }
 
 /* ------------------------------------------------------------------ *
+ *  Recharges — des parties achetées à l'unité
+ * ------------------------------------------------------------------ */
+
+/**
+ * Ouvre le paiement d'une recharge de parties.
+ *
+ * Un paiement PONCTUEL, pas un abonnement : on achète un lot de parties une
+ * fois, on ne s'engage à rien. C'est ce qu'attend quelqu'un dont le stock
+ * est vide un mardi soir et qui veut juste rejouer maintenant.
+ *
+ * `metadata` porte le compte et le lot. C'est ce que le webhook relira pour
+ * savoir qui créditer et de combien : on ne fait jamais confiance à ce que
+ * le navigateur renvoie au retour, seul Stripe fait foi.
+ *
+ * L'identifiant de session sert de référence au crédit, ce qui rend
+ * l'opération sûre à rejouer — Stripe réémet ses événements, et créditer
+ * deux fois un paiement unique se remarquerait du mauvais côté du compte.
+ */
+export async function createCreditPackSession({
+  pack,
+  credits,
+  amountCents,
+  userId,
+  email,
+  successUrl,
+  cancelUrl,
+}) {
+  const session = await stripeRequest('POST', '/checkout/sessions', {
+    mode: 'payment',
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: 'eur',
+          unit_amount: amountCents,
+          product_data: {
+            name: `${credits} parties — Suis-je un footix ?`,
+            description: 'Parties supplémentaires, sans engagement. Elles ne périment pas.',
+          },
+        },
+      },
+    ],
+    client_reference_id: userId,
+    customer_email: email || undefined,
+    success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: cancelUrl,
+    locale: 'fr',
+    metadata: { userId, pack, credits: String(credits), kind: 'credits' },
+  });
+
+  return { id: session.id, url: session.url };
+}
+
+/* ------------------------------------------------------------------ *
  *  Vérification des webhooks
  * ------------------------------------------------------------------ */
 

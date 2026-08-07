@@ -81,14 +81,9 @@ export const config = {
    * proposition est un appel facturé à Claude : un jeu qui ne se vend pas
    * s'éteint, il ne devient pas rentable en attendant.
    *
-   * Restent donc DEUX forfaits, et le nombre de chances est la frontière
-   * entre les deux. Quinze chances suffisent à jouer sa journée (forfait
-   * Accès, 2,99 €), cinquante sont le confort qu'on achète (forfait
-   * Illimité, 9,99 €).
-   *
-   * En duel, cette frontière disparaît : les quinze essais sont les mêmes
-   * pour les deux adversaires. Ce que l'abonnement achète, c'est le nombre
-   * de duels dans la journée — jamais un avantage à l'intérieur d'un duel.
+   * Restent donc DEUX forfaits, et ce qui les sépare est le NOMBRE de
+   * parties, jamais leur longueur : vingt chances pour tout le monde, en
+   * solo comme en duel.
    *
    * Les anciens noms de variables (MAX_ATTEMPTS_FREE, MAX_DUELS_FREE) sont
    * encore lus en second recours : ils sont posés chez l'hébergeur et une
@@ -99,25 +94,39 @@ export const config = {
     minGuessIntervalMs: 1000, // max 1 appel/sec par joueur (§5)
 
     /*
-     * Quinze chances par partie, pour tout le monde.
+     * VINGT chances par partie, pour tout le monde.
      *
-     * L'ancien forfait premium en donnait cinquante. Ce n'est plus possible,
-     * et c'est le passage aux crédits qui l'interdit : une partie facturée
-     * un crédit doit coûter à peu près la même chose à servir, sinon le prix
-     * du crédit ne veut plus rien dire. Une partie à cinquante essais coûte
-     * plus de trois fois une partie à quinze — vendue au même crédit, elle
-     * transformait chaque gros joueur en perte sèche.
+     * L'ancien forfait premium en donnait cinquante, le gratuit quinze. Ce
+     * découpage n'est plus possible, et c'est le passage aux crédits qui
+     * l'interdit : une partie facturée un crédit doit coûter à peu près la
+     * même chose à servir, sinon le prix du crédit ne veut plus rien dire.
+     * Une partie à cinquante essais coûte plus de trois fois une partie à
+     * quinze — vendue au même crédit, elle transformait chaque gros joueur
+     * en perte sèche.
      *
-     * Ce que le forfait supérieur achète, désormais, c'est le NOMBRE de
-     * parties, pas la longueur de chacune. C'est plus honnête à expliquer, et
-     * accessoirement plus juste : deux abonnés qui jouent la même journée
-     * jouent avec le même nombre de balles.
+     * Vingt plutôt que quinze : quinze suffisent à jouer sa journée, mais
+     * elles laissent trop de parties se terminer sur une frustration alors
+     * que le joueur brûlait. Cinq essais de plus, c'est une partie que l'on
+     * finit — et ce qu'on vend est du temps de jeu.
+     *
+     * Ce n'est pas gratuit : une partie au pire coûte un tiers de plus à
+     * servir, et la marge plancher des deux forfaits descend d'environ 40 %
+     * à un peu moins de 25 %. Elle reste positive dans TOUS les cas, y
+     * compris si chaque abonné épuise ses vingt essais à chaque partie —
+     * c'est la condition qu'on s'est fixée et elle tient toujours. Le calcul
+     * complet est dans la section `credits`.
+     *
+     * Ce que le forfait supérieur achète reste le NOMBRE de parties, pas la
+     * longueur de chacune. C'est plus honnête à expliquer, et accessoirement
+     * plus juste : deux abonnés qui jouent la même journée jouent avec le
+     * même nombre de balles.
      */
-    maxAttempts: Number(process.env.MAX_ATTEMPTS || process.env.MAX_ATTEMPTS_FREE || 15),
-    // Duel : quinze essais chacun, abonné comme gratuit. C'est le seul
-    // chiffre du jeu que l'argent ne change pas — deux adversaires qui ne
-    // jouent pas avec le même nombre de balles ne font pas un duel.
-    maxAttemptsPvp: Number(process.env.MAX_ATTEMPTS_PVP || 15),
+    maxAttempts: Number(process.env.MAX_ATTEMPTS || process.env.MAX_ATTEMPTS_FREE || 20),
+    // Duel : vingt essais chacun, même chiffre qu'en solo et quel que soit
+    // le forfait. C'est le seul nombre du jeu que l'argent ne change pas —
+    // deux adversaires qui ne jouent pas avec le même nombre de balles ne
+    // font pas un duel.
+    maxAttemptsPvp: Number(process.env.MAX_ATTEMPTS_PVP || 20),
     turnMs: Number(process.env.TURN_MS || 15000), // duel : 15 s pour proposer
     maxMissedTurns: Number(process.env.MAX_MISSED_TURNS || 3), // 3 tours manqués = forfait
 
@@ -137,46 +146,97 @@ export const config = {
   },
 
   /*
-   * Les crédits — le compteur qui remplace tous les quotas.
+   * Les crédits — ce qu'on joue EN PLUS du rendez-vous quotidien.
    *
-   * Une partie coûte un crédit. Le forfait en donne un stock chaque mois ;
-   * à zéro, on attend la recharge. C'est le seul compteur du jeu, et il est
-   * adossé à la seule chose qui coûte vraiment : les appels à l'API Claude.
+   * L'abonnement donne d'abord le joueur mystère du jour, tous les jours,
+   * sans rien décompter. C'est le cœur du jeu et son rendez-vous : le faire
+   * payer à l'unité aurait mis un péage devant la seule chose qui fait
+   * revenir quelqu'un chaque matin.
+   *
+   * Les crédits servent au RESTE — rejouer une journée d'archive, lancer un
+   * duel. Ce sont les parties qu'on ajoute quand on en veut plus, et c'est
+   * là que la dépense d'API décolle vraiment.
    *
    * ── Le calcul qui fixe ces chiffres ────────────────────────────────
    *
    * Une proposition coûte ~0,0024 € (Sonnet, 2,56 $ les mille). L'escalade
    * vers Opus sur les joueurs mal reconnus pousse la moyenne autour de
-   * 0,004 €. Une partie va jusqu'à quinze propositions : au pire ~0,06 €,
-   * en pratique plutôt 0,05 €. On retient 0,08 € par crédit — la marge
-   * d'erreur est du bon côté.
+   * 0,004 €. Une partie va jusqu'à VINGT propositions : au pire ~0,08 €, et
+   * plutôt 0,04 € au régime réel — une partie trouvée tourne autour de dix
+   * propositions, pas vingt.
    *
-   * Stripe prélève 1,5 % + 0,25 € par encaissement.
+   * Stripe prélève 1,5 % + 0,25 € par encaissement. Le mot du jour joué tous
+   * les jours, c'est ~30 parties par mois qui s'ajoutent aux crédits.
    *
-   *   Accès    2,99 € → 2,70 € net → 20 crédits coûtent au pire 1,60 €
-   *                                   → il reste 1,10 € (41 %)
-   *   Illimité 9,99 € → 9,59 € net → 75 crédits coûtent au pire 6,00 €
-   *                                   → il reste 3,59 € (37 %)
+   *            net     parties/mois        régime réel        pire cas
+   *   Accès    2,70 €  30 + 20  =  50      2,00 € → +0,70 €   4,00 € → −1,30 €
+   *   Illimité 9,59 €  30 + 100 = 130      5,20 € → +4,39 €  10,40 € → −0,81 €
    *
-   * Au régime réaliste (une partie trouvée tourne autour de dix
-   * propositions, pas quinze), les deux forfaits laissent plutôt 60 %.
-   * Le jeu est bénéficiaire dans TOUS les cas, y compris si chaque abonné
-   * consomme son stock jusqu'au dernier crédit en épuisant ses quinze
-   * chances à chaque partie. C'était la condition à tenir.
+   * ⚠ Il faut le dire franchement : le PIRE cas est désormais déficitaire.
+   * Un abonné qui jouerait tous les jours ET brûlerait ses vingt essais à
+   * chaque partie ET consommerait tous ses crédits coûterait plus qu'il ne
+   * paie. Ce n'était plus tenable dès lors que le mot du jour est offert :
+   * trente parties mensuelles gratuites mangent à elles seules 2,40 € au
+   * pire, sur les 2,70 € que rapporte le forfait Accès.
+   *
+   * C'est un pari assumé sur le comportement réel, pas une garantie
+   * arithmétique : au régime observé les deux forfaits gagnent de l'argent,
+   * et personne ne joue au pire cas tous les jours d'un mois. Ce qui protège
+   * la caisse n'est donc plus le calcul mais DAILY_API_BUDGET, le plafond
+   * d'appels quotidiens — c'est lui qu'il faut surveiller, et le tableau de
+   * bord admin affiche le rapport consommé/distribué pour ça.
+   *
+   * Si la moyenne réelle dépassait douze propositions par partie, il
+   * faudrait revoir l'un des trois chiffres : le prix, le stock, ou le
+   * nombre d'essais.
    *
    * Un duel coûte deux crédits à qui l'ouvre par invitation : il paie pour
-   * lui et pour son invité, et deux joueurs, ce sont deux fois quinze
+   * lui et pour son invité, et deux joueurs, ce sont deux fois vingt
    * propositions. En file aléatoire, chacun paie le sien.
    */
   credits: {
-    // Stock mensuel, par forfait. Rechargé à chaque échéance payée.
+    // Stock mensuel, par forfait. Rechargé à chaque échéance payée. Ce sont
+    // des parties EN PLUS du mot du jour, qui n'est jamais décompté.
     perPlan: {
       access: Number(process.env.CREDITS_ACCESS || 20),
-      unlimited: Number(process.env.CREDITS_UNLIMITED || 75),
+      unlimited: Number(process.env.CREDITS_UNLIMITED || 100),
     },
-    // Ce que coûte chaque format de partie.
-    costSolo: Number(process.env.CREDIT_COST_SOLO || 1),
+    /*
+     * Ce que coûte chaque format de partie.
+     *
+     * Le mot du jour n'apparaît pas ici, et c'est le sujet : il est inclus,
+     * il ne se tarife pas. Seules les parties qu'on ajoute se paient.
+     */
+    costArchive: Number(process.env.CREDIT_COST_ARCHIVE || 1),
     costDuel: Number(process.env.CREDIT_COST_DUEL || 1),
+
+    /*
+     * Les recharges — des parties achetées à l'unité, quand le stock du mois
+     * est épuisé et qu'on ne veut pas attendre.
+     *
+     * Elles ne périment PAS, contrairement au stock mensuel : ce qui est
+     * payé en plus est payé pour de bon. C'est la raison d'être de la
+     * seconde poche (`credits_purchased`) — sans elle, la recharge mensuelle
+     * écraserait le solde et effacerait ce qu'on vient de vendre. Facturer
+     * puis effacer, c'est le litige assuré.
+     *
+     * Le prix à la partie est VOLONTAIREMENT plus élevé que dans
+     * l'abonnement : 0,20 € l'unité pour dix, contre 0,10 € et moins au
+     * forfait. Ce n'est pas une punition, c'est ce qu'un achat ponctuel
+     * coûte vraiment à servir sans le lissage d'un abonnement — et
+     * l'interface le dit en clair plutôt que de laisser quelqu'un empiler
+     * les recharges là où passer à l'Illimité lui reviendrait moins cher.
+     *
+     * Les trois tailles restent bénéficiaires y compris au pire cas
+     * (0,08 € la partie) : 10 parties coûtent au pire 0,80 € pour 1,71 €
+     * nets encaissés. Ce sont elles qui compensent le pari pris sur le mot
+     * du jour offert.
+     */
+    packs: [
+      { key: 'p10', credits: 10, price: '1,99', cents: 199 },
+      { key: 'p30', credits: 30, price: '4,99', cents: 499 },
+      { key: 'p75', credits: 75, price: '9,99', cents: 999 },
+    ],
     // Duel sur invitation : l'hôte règle l'addition entière, invité compris.
     costDuelInvite: Number(process.env.CREDIT_COST_DUEL_INVITE || 2),
     /*

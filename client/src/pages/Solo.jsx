@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { api, creditsDeLErreur, errorMessage, sansCredit } from '../lib/api.js';
+import { api, errorMessage } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
 import { publierCredits, useCredits } from '../lib/credits.js';
 import Gauge from '../components/Gauge.jsx';
@@ -48,9 +47,6 @@ export default function Solo() {
   const [surrendered, setSurrendered] = useState(false);
   const [sort, setSort] = useState('best');
   const [description, setDescription] = useState(null);
-  // Le serveur a refusé faute de crédits : on remplace le champ de saisie
-  // par ce qu'il faut faire, plutôt que de laisser taper dans le vide.
-  const [bloque, setBloque] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['daily-word'],
@@ -108,12 +104,6 @@ export default function Solo() {
         refreshProfile();
       }
     } catch (err) {
-      // Portefeuille vide : le serveur joint le solde à jour, on le publie
-      // pour que l'en-tête et cette page racontent la même chose.
-      if (sansCredit(err)) {
-        publierCredits(creditsDeLErreur(err));
-        setBloque(true);
-      }
       setError(errorMessage(err));
     } finally {
       setBusy(false);
@@ -129,10 +119,6 @@ export default function Solo() {
       publierCredits(res.credits);
       setResult({ ...res, score: 0, seconds: 0, attempts: res.attempts });
     } catch (err) {
-      if (sansCredit(err)) {
-        publierCredits(creditsDeLErreur(err));
-        setBloque(true);
-      }
       setError(errorMessage(err));
     }
   };
@@ -141,24 +127,10 @@ export default function Solo() {
 
   const puzzle = data?.puzzle;
   const finished = Boolean(result);
-  const maxAttempts = data?.maxAttempts ?? 15;
+  const maxAttempts = data?.maxAttempts ?? 20;
   // `surrendered` vient de la partie rechargée, `outcome` de la partie qui
   // vient de se terminer : les deux disent la même chose, jamais en même temps.
   const issue = result?.outcome || (surrendered ? 'surrendered' : 'found');
-
-  /*
-   * La partie du jour est-elle déjà payée ?
-   *
-   * `paid` vient du serveur et vaut aussi bien pour une partie entamée hier
-   * soir que pour une reprise après déconnexion. Tant qu'elle est payée, le
-   * solde n'a aucune importance ici : elle se termine, même à zéro.
-   */
-  const payee = Boolean(data?.paid);
-  const solde = credits?.balance ?? null;
-  const cout = credits?.costs?.solo ?? 1;
-  // Le mur ne se dresse qu'AVANT le premier mot : ni sur une partie payée,
-  // ni sur une partie terminée.
-  const sansStock = !payee && !finished && (bloque || solde === 0);
 
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
@@ -177,18 +149,14 @@ export default function Solo() {
           </p>
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
-          {/* Le prix s'annonce AVANT le premier mot. Découvrir en cours de
-              partie ce qu'elle coûte, c'est le reproche qu'on ne veut pas. */}
-          {!finished &&
-            (payee ? (
-              <span className="pill pill-green" title="Le débit a déjà eu lieu">
-                <Icon name="check" size={13} /> Partie payée
-              </span>
-            ) : (
-              <span className="pill">
-                <Icon name="target" size={13} /> {cout} partie de ton stock
-              </span>
-            ))}
+          {/* Le rendez-vous du jour ne décompte rien, et on le dit : c'est la
+              promesse principale de l'abonnement, elle doit être visible là
+              où elle se vérifie. */}
+          {!finished && (
+            <span className="pill pill-green" title="Comprise dans ton abonnement">
+              <Icon name="check" size={13} /> Partie du jour incluse
+            </span>
+          )}
           <span className="pill">
             <Icon name="clock" size={14} /> Nouveau joueur dans <Countdown />
           </span>
@@ -212,41 +180,6 @@ export default function Solo() {
           credits={credits}
           serie={stats?.currentStreak ?? 0}
         />
-      ) : sansStock ? (
-        /*
-         * Plus rien au portefeuille. On ferme le champ de saisie plutôt que
-         * de le laisser ouvert sur un refus : taper un mot, réfléchir, puis
-         * apprendre que ça ne comptait pas est la manière la plus sûre de
-         * faire partir quelqu'un.
-         *
-         * La partie du jour n'est pas perdue pour autant — elle attend la
-         * recharge, et on le dit, parce qu'un joueur qui croit avoir raté sa
-         * journée ne revient pas le lendemain.
-         */
-        <div className="card center">
-          <span className="premium-hero-icon">
-            <Icon name="clock" size={30} strokeWidth={1.6} />
-          </span>
-          <h2 style={{ fontSize: 20, margin: '12px 0 8px' }}>Ton stock est épuisé</h2>
-          <p className="muted small" style={{ maxWidth: 440, margin: '0 auto' }}>
-            {credits?.nextRecharge
-              ? `Tes ${credits.monthly} parties du mois sont jouées. Ton stock se recharge le ${new Date(
-                  credits.nextRecharge
-                ).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}, et le joueur du
-                jour t'attendra si tu reviens avant minuit.`
-              : `Tes ${credits?.monthly ?? ''} parties du mois sont jouées. Ton stock se recharge à ta prochaine échéance.`}
-          </p>
-          <div className="row wrap" style={{ gap: 10, marginTop: 18, justifyContent: 'center' }}>
-            {!isPremium && (
-              <Link to="/premium" className="btn">
-                <Icon name="crown" size={15} /> Passer à l'Illimité
-              </Link>
-            )}
-            <Link to="/profil#portefeuille" className="btn btn-ghost">
-              Voir mon relevé
-            </Link>
-          </div>
-        </div>
       ) : (
         <>
           <div className="card" style={{ marginBottom: 16 }}>

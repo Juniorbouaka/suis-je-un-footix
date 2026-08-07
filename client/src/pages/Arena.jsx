@@ -305,7 +305,7 @@ export default function Arena() {
             )}
 
             {draw &&
-              `Vous avez épuisé vos ${state.maxAttempts ?? 15} essais sans trouver : personne ne gagne, personne ne perd. `}
+              `Vous avez épuisé vos ${state.maxAttempts ?? 20} essais sans trouver : personne ne gagne, personne ne perd. `}
 
             Le joueur mystère était
           </p>

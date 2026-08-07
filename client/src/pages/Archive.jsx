@@ -140,14 +140,13 @@ export default function Archive() {
         <div className="alert alert-info" style={{ marginBottom: 16 }}>
           <div className="row row-between wrap" style={{ gap: 10 }}>
             <span>
-              Ton stock est épuisé{recharge ? ` — il se recharge le ${recharge}` : ''}. Les journées
-              déjà commencées restent terminables, et consulter ne coûte rien.
+              Plus de parties en réserve{recharge ? ` — elle se recharge le ${recharge}` : ''}. Les
+              journées déjà commencées restent terminables, consulter ne coûte rien, et le joueur
+              du jour est compris dans ton abonnement.
             </span>
-            {!isPremium && (
-              <Link to="/premium" className="btn btn-sm">
-                <Icon name="crown" size={14} /> Voir l'Illimité
-              </Link>
-            )}
+            <Link to="/premium#recharges" className="btn btn-sm">
+              <Icon name="target" size={14} /> Prendre des parties
+            </Link>
           </div>
         </div>
       )}

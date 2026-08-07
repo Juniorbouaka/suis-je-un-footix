@@ -87,10 +87,10 @@ git status --short | grep -E "\.env$|footix\.db"   # ne doit rien afficher
    | `PUBLIC_URL` | `https://ton-domaine.up.railway.app` |
    | `RESEND_API_KEY` | ta clé Resend (voir ci-dessous) |
    | `ADMIN_EMAILS` | ton adresse : ouvre `/admin` **et** donne l'accès complet, sans abonnement |
-   | `MAX_ATTEMPTS` | `15` |
-   | `MAX_ATTEMPTS_PVP` | `15` |
+   | `MAX_ATTEMPTS` | `20` |
+   | `MAX_ATTEMPTS_PVP` | `20` |
    | `CREDITS_ACCESS` | `20` |
-   | `CREDITS_UNLIMITED` | `75` |
+   | `CREDITS_UNLIMITED` | `100` |
 
    Ne touche pas à `PORT` : Railway l'injecte.
 
@@ -102,16 +102,19 @@ git status --short | grep -E "\.env$|footix\.db"   # ne doit rien afficher
    (`MAX_ATTEMPTS_FREE` est encore relue en second recours par `MAX_ATTEMPTS`, donc une valeur
    traînante y reste sans danger — les quatre autres n'ont plus aucun effet.)
 
-   `CREDITS_ACCESS` et `CREDITS_UNLIMITED` sont les stocks mensuels des deux forfaits, en
-   PARTIES. Une partie du jour, une journée d'archive rejouée ou un duel en coûtent une ;
-   une invitation en coûte deux à celui qui l'envoie, puisqu'il offre celle de son invité.
-   Le stock est **remplacé** à chaque échéance payée, jamais additionné : les parties non
-   jouées ne se cumulent pas d'un mois sur l'autre.
+   `CREDITS_ACCESS` et `CREDITS_UNLIMITED` sont les parties **supplémentaires** servies chaque
+   mois. Le joueur du jour, lui, est compris dans les deux formules et ne décompte rien : ce
+   sont les archives rejouées et les duels qui coûtent une partie (une invitation en coûte deux
+   à celui qui l'envoie, puisqu'il offre celle de son invité). Le stock est **remplacé** à
+   chaque échéance payée, jamais additionné — sauf les parties achetées à l'unité, qui vivent
+   dans une seconde colonne et ne périment jamais.
 
-   Ces deux chiffres sont ce qui tient la marge : un crédit vaut au pire ~0,08 € d'appels à
-   l'API. À 20 crédits pour 2,99 € et 75 pour 9,99 €, le jeu reste bénéficiaire même si chaque
-   abonné épuise ses quinze chances à chaque partie. Les augmenter sans toucher aux prix, c'est
-   rogner directement là-dessus. La valeur affichée sur la page d'offre suit automatiquement.
+   ⚠️ Ces deux chiffres décident de la marge, et depuis que le mot du jour est offert le pire
+   cas est déficitaire : un abonné qui jouerait tous les jours en brûlant ses vingt essais
+   coûterait plus qu'il ne paie. C'est un pari assumé sur le comportement réel — voir le calcul
+   complet dans le README. Les augmenter sans toucher aux prix creuse directement ce pari, et
+   c'est `DAILY_API_BUDGET` qui sert de vrai garde-fou. La valeur affichée sur la page d'offre
+   suit automatiquement.
 
 4. **Générer le domaine** — onglet *Settings* → *Networking* → *Generate Domain*.
    Tu obtiens une URL en `.up.railway.app`.

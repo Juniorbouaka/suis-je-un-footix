@@ -58,12 +58,28 @@ billingRouter.get('/offer', (req, res) => {
       label: p.label,
       price: p.price,
       period: p.period,
-      // Le cœur de l'offre : ce qu'on achète, c'est un nombre de parties.
+      // Le cœur de l'offre : le rendez-vous quotidien compris, plus un
+      // nombre de parties supplémentaires.
       credits: p.credits,
       available: Boolean(p.planId()) || stripeOk(p.key),
       paypal: Boolean(p.planId()),
       stripe: stripeOk(p.key),
     })),
+    /*
+     * Les recharges — pour qui a vidé son stock avant l'échéance.
+     *
+     * Elles n'existent que par la carte : un paiement ponctuel PayPal
+     * demanderait un second circuit d'encaissement et de webhook pour un
+     * usage marginal. Le tableau est donc vide si Stripe est hors service,
+     * et l'écran n'affiche simplement pas la section.
+     */
+    packs: stripeUsable()
+      ? config.credits.packs.map((p) => ({
+          key: p.key,
+          credits: p.credits,
+          price: p.price,
+        }))
+      : [],
   });
 });
 

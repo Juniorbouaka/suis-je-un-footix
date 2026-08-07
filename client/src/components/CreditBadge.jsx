@@ -30,12 +30,15 @@ export default function CreditBadge() {
 
   return (
     <Link
-      to="/profil#portefeuille"
+      // À sec, le badge mène là où l'on peut y remédier ; sinon au relevé.
+      // Un compteur vide qui ne mène qu'à sa propre constatation n'aide
+      // personne.
+      to={vide ? '/premium#recharges' : '/profil#portefeuille'}
       className={`pill credit-pill${vide ? ' credit-pill-empty' : ''}`}
       title={
         vide
-          ? 'Plus de parties — ton stock se recharge à ta prochaine échéance.'
-          : `${solde} partie(s) restante(s) sur ${credits.monthly ?? '—'} ce mois-ci`
+          ? 'Plus de parties en réserve — le joueur du jour reste compris dans ton abonnement.'
+          : `${solde} partie(s) en réserve, pour les archives et les duels`
       }
     >
       <Icon name="target" size={13} />

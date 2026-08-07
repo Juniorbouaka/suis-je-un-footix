@@ -171,7 +171,7 @@ export default function ArchiveGame() {
   }
 
   const finished = Boolean(result);
-  const maxAttempts = data?.maxAttempts ?? 15;
+  const maxAttempts = data?.maxAttempts ?? 20;
   /*
    * Cette journée est-elle déjà payée ?
    *
@@ -222,19 +222,18 @@ export default function ArchiveGame() {
           <span className="premium-hero-icon">
             <Icon name="clock" size={30} strokeWidth={1.6} />
           </span>
-          <h2 style={{ fontSize: 20, margin: '12px 0 8px' }}>Ton stock est épuisé</h2>
+          <h2 style={{ fontSize: 20, margin: '12px 0 8px' }}>Plus de parties en réserve</h2>
           <p className="muted small" style={{ maxWidth: 440, margin: '0 auto' }}>
-            Cette journée t'attendra — elle ne disparaît pas.
-            {recharge ? ` Ton stock se recharge le ${recharge}.` : ''}
+            Cette journée t'attendra — elle ne disparaît pas, et le joueur du jour reste compris
+            dans ton abonnement.
+            {recharge ? ` Ta réserve se recharge le ${recharge}.` : ''}
           </p>
           <div className="row wrap" style={{ gap: 10, marginTop: 18, justifyContent: 'center' }}>
-            {!isPremium && (
-              <Link to="/premium" className="btn">
-                <Icon name="crown" size={15} /> Passer à l'Illimité
-              </Link>
-            )}
-            <Link to="/archives" className="btn btn-ghost">
-              Retour aux archives
+            <Link to="/premium#recharges" className="btn">
+              <Icon name="target" size={15} /> Prendre des parties
+            </Link>
+            <Link to="/solo" className="btn btn-ghost">
+              Jouer la partie du jour
             </Link>
           </div>
         </div>

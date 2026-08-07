@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, errorMessage } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
+import { publierCredits } from '../lib/credits.js';
 import Confetti from '../components/Confetti.jsx';
 import Icon from '../components/Icon.jsx';
 
@@ -17,6 +18,9 @@ export default function PremiumThanks() {
   const { refreshProfile } = useAuth();
   const [state, setState] = useState('pending'); // pending | ok | error
   const [error, setError] = useState('');
+  // Nombre de parties créditées, si le retour vient d'une recharge : le
+  // message n'est pas le même qu'après une souscription.
+  const [recharge, setRecharge] = useState(null);
   const done = useRef(false);
 
   // PayPal renvoie « subscription_id », Stripe « session_id » : une seule
@@ -38,8 +42,17 @@ export default function PremiumThanks() {
 
     (async () => {
       try {
-        if (sessionId) await api.post('/stripe/confirm', { sessionId });
-        else await api.post('/billing/confirm', { subscriptionId });
+        if (sessionId) {
+          const { data } = await api.post('/stripe/confirm', { sessionId });
+          // Le serveur ne renvoie `credits` que pour une recharge : c'est ce
+          // qui distingue les deux retours, sans avoir à le deviner de l'URL.
+          if (data?.credits) {
+            publierCredits(data.credits);
+            setRecharge(data.credits.balance);
+          }
+        } else {
+          await api.post('/billing/confirm', { subscriptionId });
+        }
         await refreshProfile();
         setState('ok');
       } catch (err) {
@@ -88,17 +101,20 @@ export default function PremiumThanks() {
       <span className="premium-hero-icon">
         <Icon name="crown" size={38} strokeWidth={1.6} />
       </span>
-      <h1 style={{ fontSize: 25, margin: '14px 0 8px' }}>Bienvenue chez les abonnés</h1>
+      <h1 style={{ fontSize: 25, margin: '14px 0 8px' }}>
+        {recharge !== null ? 'Parties créditées' : 'Bienvenue chez les abonnés'}
+      </h1>
       <p className="muted">
-        Merci — c'est ce qui fait tourner le jeu. Ton stock de parties est crédité : à dépenser en
-        partie du jour, en journées d'archive ou en duels, comme tu veux.
+        {recharge !== null
+          ? `Merci — tu as ${recharge} partie${recharge > 1 ? 's' : ''} en réserve. Elles ne périment pas : ce que tu ne joues pas ce mois-ci restera là le mois prochain.`
+          : "Merci — c'est ce qui fait tourner le jeu. Le joueur du jour est à toi tous les jours, et ta réserve de parties t'attend pour les archives et les duels."}
       </p>
       <div className="row wrap" style={{ gap: 10, marginTop: 20, justifyContent: 'center' }}>
-        <Link to="/solo" className="btn">
-          <Icon name="target" /> Jouer la partie du jour
+        <Link to={recharge !== null ? '/archives' : '/solo'} className="btn">
+          <Icon name="target" /> {recharge !== null ? 'Rejouer une journée' : 'Jouer la partie du jour'}
         </Link>
-        <Link to="/archives" className="btn btn-ghost">
-          Explorer les archives
+        <Link to={recharge !== null ? '/duel' : '/archives'} className="btn btn-ghost">
+          {recharge !== null ? 'Lancer un duel' : 'Explorer les archives'}
         </Link>
       </div>
     </div>
