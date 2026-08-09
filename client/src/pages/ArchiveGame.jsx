@@ -7,6 +7,7 @@ import { publierCredits, useCredits } from '../lib/credits.js';
 import Gauge from '../components/Gauge.jsx';
 import GuessList from '../components/GuessList.jsx';
 import Icon from '../components/Icon.jsx';
+import NextGame from '../components/NextGame.jsx';
 
 /**
  * Rejouer une journée passée.
@@ -53,15 +54,49 @@ export default function ArchiveGame() {
     retry: false,
   });
 
+  /*
+   * La journée affichée est-elle bien celle qui a été chargée ?
+   *
+   * Cet écran ne se démonte pas quand on passe d'une journée à la suivante :
+   * c'est la même route, seul le paramètre change. Le composant est donc
+   * réutilisé, avec l'état de la journée précédente encore dedans — et le
+   * temps que la nouvelle réponse arrive, `data` porte encore l'ancienne.
+   *
+   * La réponse dit de quelle date elle parle : on s'en sert. Tant que les
+   * deux ne concordent pas, il n'y a rien à afficher — mieux vaut la roue
+   * d'attente qu'une journée jamais jouée annoncée « abandonnée » avec le
+   * nom d'une autre, ce qui la brûlerait au passage.
+   */
+  const jour = data?.date === date ? data : null;
+
+  /*
+   * L'état local est REMPLACÉ, jamais complété.
+   *
+   * Chaque champ est réécrit, y compris à vide. Ne poser le résultat que
+   * s'il existe laissait celui de la journée d'avant en place : la nouvelle
+   * s'ouvrait terminée, avec la mauvaise réponse déjà révélée.
+   */
   useEffect(() => {
-    if (!data) return;
-    setGuesses(data.guesses || []);
-    publierCredits(data.credits);
-    if (data.result) setResult(data.result);
-    if (data.word) setReveal({ word: data.word, description: data.description });
-    const best = [...(data.guesses || [])].sort((a, b) => b.score - a.score)[0];
-    if (best) setLast(best);
-  }, [data]);
+    setGuesses(jour?.guesses || []);
+    setResult(jour?.result || null);
+    setReveal(jour?.word ? { word: jour.word, description: jour.description } : null);
+    setLast([...(jour?.guesses || [])].sort((a, b) => b.score - a.score)[0] || null);
+    publierCredits(jour?.credits);
+  }, [jour, date]);
+
+  /*
+   * La saisie, elle, ne dépend que de la journée.
+   *
+   * Elle est vidée au changement de date et à ce seul moment : cet écran se
+   * recharge tout seul au retour sur l'onglet, et un mot à moitié tapé qui
+   * s'efface parce qu'on est allé lire une réponse ailleurs serait une
+   * punition pour être sorti.
+   */
+  useEffect(() => {
+    setWord('');
+    setError('');
+    setNotice('');
+  }, [date]);
 
   useEffect(() => {
     if (!result) inputRef.current?.focus();
@@ -151,8 +186,6 @@ export default function ArchiveGame() {
     }
   };
 
-  if (isLoading) return <div className="spinner" style={{ marginTop: 80 }} />;
-
   if (isError) {
     return (
       <div className="card center" style={{ maxWidth: 480, margin: '60px auto' }}>
@@ -170,20 +203,24 @@ export default function ArchiveGame() {
     );
   }
 
+  // La journée demandée n'est pas encore là : rien à montrer. Tout ce qui
+  // suit lit `jour`, et le lire à moitié chargé afficherait la précédente.
+  if (isLoading || !jour) return <div className="spinner" style={{ marginTop: 80 }} />;
+
   const finished = Boolean(result);
-  const maxAttempts = data?.maxAttempts ?? 20;
+  const maxAttempts = jour.maxAttempts ?? 20;
   /*
    * Cette journée est-elle déjà payée ?
    *
    * `paid` vient du serveur. Une journée payée se termine quoi qu'il arrive,
    * même si le stock s'est vidé entre-temps : elle est due, on l'a réglée.
    */
-  const payee = Boolean(data?.paid);
+  const payee = Boolean(jour.paid);
   const solde = credits?.balance ?? 0;
   // Le mur ne se dresse qu'avant la première proposition d'une journée non
   // payée. Le champ disparaît plutôt que de rester ouvert sur un refus.
   const sansStock = !payee && !finished && solde <= 0;
-  const fige = busy || data?.playedForReal || sansStock;
+  const fige = busy || jour.playedForReal || sansStock;
   const recharge = credits?.nextRecharge
     ? new Date(credits.nextRecharge).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
     : null;
@@ -195,7 +232,7 @@ export default function ArchiveGame() {
           <Link to="/archives" className="small muted">
             ← Archives
           </Link>
-          <h1 style={{ fontSize: 26, marginTop: 4 }}>Journée n°{data?.number}</h1>
+          <h1 style={{ fontSize: 26, marginTop: 4 }}>Journée n°{jour.number}</h1>
           <p className="muted small">{formatDate(date)}</p>
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
@@ -239,7 +276,7 @@ export default function ArchiveGame() {
         </div>
       )}
 
-      {data?.playedForReal && (
+      {jour.playedForReal && (
         <div className="alert alert-info" style={{ marginBottom: 16 }}>
           Tu avais déjà joué cette journée le jour même : elle n'est pas rejouable.
         </div>
@@ -269,13 +306,20 @@ export default function ArchiveGame() {
             )}
           </div>
 
+          {/* Enchaîner d'abord : quelqu'un qui vient de terminer veut une
+              partie de plus, pas la même en boucle. « Recommencer » débite
+              une seconde fois la MÊME journée — c'est un rattrapage, pas une
+              suite, et il passe donc derrière. */}
           <div className="row wrap" style={{ marginTop: 20, gap: 10 }}>
-            <button className="btn btn-ghost grow" onClick={recommencer}>
-              <Icon name="repeat" /> Recommencer
-            </button>
-            <Link to="/archives" className="btn grow">
+            <NextGame className="btn grow" wrapperClassName="next-game grow" />
+            <Link to="/archives" className="btn btn-ghost grow">
               Une autre journée
             </Link>
+          </div>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button className="btn btn-ghost btn-sm grow" onClick={recommencer}>
+              <Icon name="repeat" /> Recommencer celle-ci
+            </button>
           </div>
 
           {guesses.length > 0 && (

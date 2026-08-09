@@ -216,6 +216,7 @@ client/                  React 18 + Vite
 | `GET` | `/api/stats/global` | compteurs d'accueil (dont `online` et `bankSize`) |
 | `POST` | `/api/presence` | ping de présence |
 | `GET` | `/api/archive` · `/archive/:date` | journées passées (abonnés ; consulter est gratuit) |
+| `GET` | `/api/archive/suivante` | la partie d'après, choisie au hasard (ne débite rien) |
 | `POST` | `/api/archive/:date/guess` · `/surrender` | **rejouer** une journée passée (1 crédit) |
 | `DELETE` | `/api/archive/:date/replay` | effacer un rejeu et recommencer (1 crédit) |
 | `GET` | `/api/me/stats/detailed` | statistiques détaillées (Illimité) |
@@ -269,6 +270,18 @@ Les crédits servent au **reste** : rejouer une journée d'archive ou lancer un 
 partie. Une invitation en coûte deux à celui qui l'envoie — il paie pour lui et pour son invité,
 qui n'a besoin de rien pour répondre. Le forfait sert un stock chaque mois (`CREDITS_ACCESS`,
 `CREDITS_UNLIMITED`).
+
+**Enchaîner** est le chemin court vers ce stock. À la fin d'une partie — celle du jour comme une
+journée d'archive — un bouton demande `GET /api/archive/suivante`, qui choisit une journée jamais
+jouée et ouvre l'écran de jeu. Le vivier est la **série entière depuis le 1er janvier 2026**, pas
+les lignes de `daily_words` : le calendrier de l'année est tiré une fois pour toutes, chaque date
+a donc déjà son joueur, et la table n'est qu'un cache des jours où le site a tourné. S'en tenir
+aux lignes écrites n'aurait laissé à proposer que les quelques jours d'ouverture. Le tirage est
+aléatoire — servir les journées dans l'ordre ferait de la deuxième partie de tout le monde la
+même partie, et la réponse circulerait avant le soir. La route **ne débite rien** : le péage
+reste à la première proposition, donc ouvrir puis changer d'avis ne coûte pas une partie. Elle
+rend d'abord une journée **déjà payée et non terminée**, s'il y en a une : elle est due, on ne la
+facture pas deux fois.
 
 Le solde vit dans **deux poches**, et c'est la seule complexité du module :
 

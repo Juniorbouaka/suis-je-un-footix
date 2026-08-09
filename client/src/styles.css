@@ -2984,12 +2984,26 @@ a:hover {
   font-weight: 700;
 }
 
+/* « Enchaîner une partie » : le bouton, et sous lui le refus eventuel du
+   serveur. Les deux sont empiles pour que le message n'ecarte pas la rangee
+   de boutons en s'affichant.                                             */
+.next-game {
+  display: inline-flex;
+  flex-direction: column;
+}
+
+.next-game .btn {
+  width: 100%;
+}
+
 @media (max-width: 520px) {
   .replay-panel {
     flex-wrap: wrap;
   }
 
-  .replay-panel .btn {
+  .replay-panel .btn,
+  .replay-panel .row,
+  .replay-panel .next-game {
     width: 100%;
   }
 }

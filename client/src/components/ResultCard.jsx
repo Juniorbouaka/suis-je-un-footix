@@ -3,6 +3,7 @@ import Icon from './Icon.jsx';
 import GuessList from './GuessList.jsx';
 import ShareResult from './ShareResult.jsx';
 import SupportPrompt from './SupportPrompt.jsx';
+import NextGame from './NextGame.jsx';
 import AdSlot from './Ads.jsx';
 
 /**
@@ -176,6 +177,12 @@ function jour(iso) {
  * compris dans l'abonnement — et pour jouer TOUT DE SUITE il y a une
  * recharge. On propose donc les deux, dans cet ordre : ce qui est déjà
  * gagné, puis ce qui s'achète.
+ *
+ * Au-dessus de zéro, l'encart ne se contente plus d'annoncer le solde : il
+ * lance la partie suivante. Renvoyer vers une liste de dates un joueur qui
+ * a déjà payé ses parties, c'est lui demander de faire le travail avant de
+ * pouvoir dépenser ce qu'il a acheté. Le lien vers les archives reste, en
+ * second, pour qui veut une journée précise.
  */
 function ReplayPanel({ credits, isPremium }) {
   const restantes = credits?.balance ?? 0;
@@ -192,7 +199,7 @@ function ReplayPanel({ credits, isPremium }) {
         </div>
         <p className="small muted" style={{ margin: '2px 0 0' }}>
           {restantes > 0
-            ? `Il te reste ${restantes} partie${restantes > 1 ? 's' : ''} en plus — une journée d'archive se rejoue tout de suite, hors classement.`
+            ? `Il te reste ${restantes} partie${restantes > 1 ? 's' : ''} en réserve. Enchaîne tout de suite sur un autre joueur mystère — hors classement, une partie décomptée.`
             : `Le joueur de demain t'attend, il est compris dans ton abonnement.${
                 recharge ? ` Ta réserve se recharge le ${recharge}.` : ''
               } Pour rejouer maintenant, tu peux prendre des parties à l'unité${
@@ -201,9 +208,12 @@ function ReplayPanel({ credits, isPremium }) {
         </p>
       </div>
       {restantes > 0 ? (
-        <Link to="/archives" className="btn btn-sm">
-          Choisir une journée
-        </Link>
+        <div className="row wrap" style={{ gap: 8 }}>
+          <NextGame />
+          <Link to="/archives" className="btn btn-sm btn-ghost">
+            Choisir
+          </Link>
+        </div>
       ) : (
         <Link to="/premium#recharges" className="btn btn-sm">
           Prendre des parties

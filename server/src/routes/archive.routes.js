@@ -10,7 +10,7 @@ import {
   normalizeWord,
   validateGuess,
 } from '../claude.js';
-import { puzzleNumber, todayUtc } from '../words.js';
+import { getDailyWord, pastDates, puzzleNumber, todayUtc } from '../words.js';
 import { alreadyPaid, creditSummary, refund, spend, spendOnce } from '../credits.js';
 
 /** Référence du débit d'une journée rejouée. Une par joueur et par journée. */
@@ -147,6 +147,116 @@ archiveRouter.get('/archive', requirePaidAccess, (req, res) => {
     // Le client doit pouvoir dire « il te reste 12 parties » AVANT le clic,
     // plutôt que d'ouvrir une journée qui refusera la première proposition.
     credits: creditSummary(req.user.id),
+  });
+});
+
+/* -------------------------------------------------------------- *
+ *  GET /api/archive/suivante — la partie d'après, choisie pour lui
+ * -------------------------------------------------------------- */
+
+/*
+ * « J'ai trouvé le joueur du jour. J'en veux une autre, tout de suite. »
+ *
+ * C'était déjà possible, mais au prix d'un détour : revenir aux archives,
+ * parcourir la liste, choisir une date. Quelqu'un qui vient de finir sa
+ * partie ne veut pas choisir un jour de calendrier, il veut rejouer — cette
+ * route choisit à sa place, et l'écran de fin n'a plus qu'un bouton.
+ *
+ * Elle ne débite RIEN, et c'est délibéré. Le péage reste où il était : à la
+ * première proposition de la journée ouverte. Ouvrir puis changer d'avis ne
+ * coûte donc pas une partie — un bouton « enchaîner » qui prélèverait au
+ * clic ferait payer l'hésitation, et c'est le genre de détail qu'on ne
+ * pardonne pas à un compteur.
+ *
+ * Deux passes, dans cet ordre :
+ *
+ *   1. une journée DÉJÀ PAYÉE et non terminée — entamée puis interrompue,
+ *      ou recommencée sans être reprise. Elle est due : on la rend avant
+ *      d'en vendre une autre. Servir une journée neuve à quelqu'un qui a
+ *      une partie payée en attente, c'est la lui facturer deux fois.
+ *
+ *   2. sinon, une journée jamais jouée, tirée AU HASARD. Pas la plus
+ *      récente : servir les journées dans l'ordre ferait de la deuxième
+ *      partie de tout le monde la même partie, et la réponse circulerait
+ *      avant la fin de la journée.
+ *
+ * Le vivier est la série entière, pas les lignes de `daily_words` — voir
+ * `pastDates`. Sans cela, un jeu ouvert depuis quinze jours n'aurait que
+ * quinze parties à proposer, dont celles déjà jouées.
+ */
+archiveRouter.get('/archive/suivante', requirePaidAccess, (req, res) => {
+  const uid = req.user.id;
+
+  const joueesPourDeVrai = new Set(
+    db.prepare('SELECT date FROM daily_results WHERE user_id = ?').all(uid).map((r) => r.date)
+  );
+  const dejaRejouees = new Set(
+    db.prepare('SELECT date FROM archive_results WHERE user_id = ?').all(uid).map((r) => r.date)
+  );
+
+  const libre = (date) => !joueesPourDeVrai.has(date) && !dejaRejouees.has(date);
+
+  /* Passe 1 — ce qui est déjà payé et pas fini. On lit le SOLDE de chaque
+     référence, comme `alreadyPaid` : une journée débitée puis remboursée
+     redevient payante et ne doit pas être offerte ici. */
+  const payees = db
+    .prepare(
+      `SELECT ref, SUM(delta) AS net
+         FROM credit_events
+        WHERE user_id = ? AND ref LIKE 'archive:%'
+        GROUP BY ref HAVING net < 0`
+    )
+    .all(uid)
+    .map((r) => r.ref.slice('archive:'.length))
+    .filter(libre)
+    .sort()
+    .reverse();
+
+  // Passe 2 — une journée neuve, au hasard.
+  const candidates = payees.length ? payees : pastDates().filter(libre);
+
+  if (candidates.length === 0) {
+    return res.status(404).json({
+      error:
+        'Tu as joué toutes les journées disponibles — il ne reste que celle de demain, et elle est comprise dans ton abonnement.',
+      exhausted: true,
+      credits: creditSummary(uid),
+    });
+  }
+
+  const date = payees.length
+    ? candidates[0]
+    : candidates[Math.floor(Math.random() * candidates.length)];
+
+  const paid = alreadyPaid(uid, refArchive(date));
+  const credits = creditSummary(uid);
+
+  /*
+   * Le refus tombe ICI plutôt qu'à la première proposition.
+   *
+   * La journée ouverte serait jouable en apparence, et le mur n'arriverait
+   * qu'après le premier mot tapé. Refuser avant d'ouvrir laisse l'écran de
+   * fin de partie proposer la recharge à la place du bouton, sans avoir
+   * fait espérer une partie entre-temps.
+   */
+  if (!paid && credits.balance < config.credits.costArchive) {
+    return res.status(402).json({
+      error: 'Plus de parties en réserve. Ta réserve se recharge à ta prochaine échéance.',
+      needsCredits: true,
+      credits,
+    });
+  }
+
+  // La journée n'existe peut-être pas encore en base : on l'y écrit
+  // maintenant, sinon `/archive/:date` répondrait 404 juste après.
+  getDailyWord(date);
+
+  res.json({
+    date,
+    number: puzzleNumber(date),
+    paid,
+    cost: paid ? 0 : config.credits.costArchive,
+    credits,
   });
 });
 

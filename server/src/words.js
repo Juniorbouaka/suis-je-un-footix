@@ -91,11 +91,42 @@ export function todayUtc(now = new Date()) {
   return now.toISOString().slice(0, 10);
 }
 
+/**
+ * Premiere journee de la serie.
+ *
+ * C'est l'origine des numeros de partie, et donc la borne basse de tout ce
+ * qui se joue : une date anterieure n'a pas de numero propre (le calcul la
+ * ramenerait a la journee n°1) et n'existe pas comme partie.
+ */
+export const FIRST_DATE = '2026-01-01';
+
 /** Numero de partie : jours ecoules depuis le lancement du jeu. */
-const EPOCH = Date.UTC(2026, 0, 1);
+const EPOCH = Date.parse(`${FIRST_DATE}T00:00:00Z`);
 export function puzzleNumber(dateStr) {
   const d = new Date(`${dateStr}T00:00:00Z`).getTime();
   return Math.max(1, Math.floor((d - EPOCH) / 86_400_000) + 1);
+}
+
+/**
+ * Toutes les journees deja passees, de la premiere a hier.
+ *
+ * La liste ne depend pas de la base : le calendrier de l'annee est tire une
+ * fois pour toutes par `scheduleFor`, donc CHAQUE date de la serie a deja
+ * son joueur, qu'elle ait ete servie ou non. `daily_words` n'est qu'un cache
+ * de ce calcul — la table ne contient que les jours ou le site a tourne.
+ *
+ * La difference compte des qu'on veut proposer une partie de plus : s'en
+ * tenir aux lignes ecrites, c'est n'avoir a offrir que les quelques jours
+ * d'ouverture. La journee n°73 existe depuis le tirage de l'annee ; il
+ * suffit de l'ecrire au moment ou quelqu'un la joue.
+ */
+export function pastDates(today = todayUtc()) {
+  const out = [];
+  const fin = Date.parse(`${today}T00:00:00Z`);
+  for (let t = EPOCH; t < fin; t += 86_400_000) {
+    out.push(new Date(t).toISOString().slice(0, 10));
+  }
+  return out;
 }
 
 function pickForDate(dateStr) {
