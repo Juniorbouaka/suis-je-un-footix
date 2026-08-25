@@ -130,6 +130,18 @@ export function AuthProvider({ children }) {
        * de paiement devant un abonné à chaque rechargement de page.
        */
       hasAccess: Boolean(profile?.billing?.hasAccess ?? profile?.user?.hasAccess),
+      /*
+       * Le droit d'OUVRIR la partie du jour, abonnement ou essai gratuit.
+       *
+       * Un troisième droit et pas un synonyme du deuxième : `hasAccess`
+       * commande l'offre, les duels et les archives, `canPlay` ne commande
+       * que la porte du mot du jour. Les confondre rouvrirait aux huit
+       * chances d'essai des parties qui se paient en crédits.
+       */
+      canPlay: Boolean(profile?.billing?.canPlay ?? profile?.user?.canPlay),
+      // Ce qui reste de l'essai. `active` dit s'il y a lieu d'en parler :
+      // un abonné a un compteur comme tout le monde, l'écran doit se taire.
+      trial: profile?.billing?.trial || profile?.user?.trial || null,
       plan: profile?.billing?.plan || null,
       planLabel: profile?.billing?.planLabel || null,
       // Le portefeuille tel que le serveur l'a renvoyé avec le profil. Les

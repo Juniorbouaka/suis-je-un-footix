@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import { db } from '../db.js';
 import { config } from '../config.js';
 import { verifyAccessToken } from '../auth.js';
-import { mur, validerNom } from '../supporters.js';
+import { marquerDonEncaisse, mur, validerNom } from '../supporters.js';
 import {
   captureOrder,
   createDonationOrder,
@@ -134,9 +134,7 @@ donateRouter.post('/capture', limiter, async (req, res) => {
   try {
     const resultat = await captureOrder(orderId);
 
-    db.prepare(
-      "UPDATE donations SET status = ?, captured_at = datetime('now') WHERE order_id = ?"
-    ).run(resultat.status, orderId);
+    marquerDonEncaisse(orderId, { status: resultat.status, provider: 'paypal' });
 
     res.json({ status: resultat.status, amount: connu.amount, currency: connu.currency });
   } catch (err) {
@@ -145,9 +143,7 @@ donateRouter.post('/capture', limiter, async (req, res) => {
     try {
       const reel = await getOrder(orderId);
       if (reel.status === 'COMPLETED') {
-        db.prepare(
-          "UPDATE donations SET status = 'COMPLETED', captured_at = datetime('now') WHERE order_id = ?"
-        ).run(orderId);
+        marquerDonEncaisse(orderId, { provider: 'paypal' });
         return res.json({ status: 'COMPLETED', amount: connu.amount, currency: connu.currency });
       }
     } catch {

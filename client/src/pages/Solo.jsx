@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api, errorMessage } from '../lib/api.js';
 import { useAuth } from '../lib/auth.jsx';
@@ -47,6 +48,15 @@ export default function Solo() {
   const [surrendered, setSurrendered] = useState(false);
   const [sort, setSort] = useState('best');
   const [description, setDescription] = useState(null);
+  /*
+   * L'essai gratuit, tel que le serveur le voit.
+   *
+   * Rafraîchi à chaque proposition plutôt que décrémenté ici : c'est le
+   * serveur qui décide ce qu'une proposition consomme — une évaluation en
+   * panne ne coûte rien — et un compteur tenu des deux côtés finit toujours
+   * par afficher un chiffre que le refus contredira.
+   */
+  const [trial, setTrial] = useState(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['daily-word'],
@@ -57,6 +67,7 @@ export default function Solo() {
     if (!data) return;
     setGuesses(data.guesses || []);
     publierCredits(data.credits);
+    setTrial(data.trial || null);
     if (data.result) {
       setResult(data.result);
       setSurrendered(Boolean(data.result.surrendered));
@@ -92,6 +103,7 @@ export default function Solo() {
 
       setLast(res);
       setGuesses((prev) => [...prev, { word: res.word, score: res.score, tier: res.tier, attempt: res.attempt }]);
+      if (res.trial) setTrial(res.trial);
       setWord('');
       // Le débit a lieu à la première proposition : le solde renvoyé avec
       // elle est le seul qui fasse foi.
@@ -132,6 +144,22 @@ export default function Solo() {
   // vient de se terminer : les deux disent la même chose, jamais en même temps.
   const issue = result?.outcome || (surrendered ? 'surrendered' : 'found');
 
+  /*
+   * L'essai vient de se terminer sur une partie encore ouverte.
+   *
+   * C'est le moment de vente du jeu, et il n'a lieu qu'ici : le joueur a vu
+   * la jauge répondre huit fois, il a un meilleur score sous les yeux, et le
+   * nom qu'il cherche est à quelques mots. Lui dire « reviens demain »
+   * serait perdre exactement la personne qu'on vient de convaincre.
+   *
+   * `!finished` compte : si la huitième chance était la bonne, on lui doit
+   * d'abord sa victoire. L'offre attend la fin de la fête.
+   */
+  const essaiEpuise = Boolean(trial?.exhausted) && !finished;
+  // Ce que l'abonnement rouvre TOUT DE SUITE, sur cette partie-ci : les
+  // chances déjà jouées comptent dans les vingt, elles ne s'ajoutent pas.
+  const chancesRendues = Math.max(0, maxAttempts - guesses.length);
+
   return (
     <div style={{ maxWidth: 720, margin: '0 auto' }}>
       {finished && !surrendered && <Confetti />}
@@ -152,11 +180,22 @@ export default function Solo() {
           {/* Le rendez-vous du jour ne décompte rien, et on le dit : c'est la
               promesse principale de l'abonnement, elle doit être visible là
               où elle se vérifie. */}
-          {!finished && (
-            <span className="pill pill-green" title="Comprise dans ton abonnement">
-              <Icon name="check" size={13} /> Partie du jour incluse
-            </span>
-          )}
+          {!finished &&
+            (trial?.active ? (
+              /* Pendant l'essai, la promesse « comprise dans l'abonnement »
+                 ne veut rien dire — il n'y a pas d'abonnement. Ce qui compte
+                 est le compte à rebours, et il doit être lisible d'un coup
+                 d'œil : un essai qu'on ne voit pas fondre ne fait rien
+                 décider. */
+              <span className="pill" title="Essai gratuit, sans carte bancaire">
+                <Icon name="gift" size={13} /> Essai — {trial.remaining}/{trial.total} chance
+                {trial.remaining > 1 ? 's' : ''}
+              </span>
+            ) : (
+              <span className="pill pill-green" title="Comprise dans ton abonnement">
+                <Icon name="check" size={13} /> Partie du jour incluse
+              </span>
+            ))}
           <span className="pill">
             <Icon name="clock" size={14} /> Nouveau joueur dans <Countdown />
           </span>
@@ -182,6 +221,51 @@ export default function Solo() {
         />
       ) : (
         <>
+          {/*
+            Le mur, à la place exacte du champ de saisie.
+            Pas une fenêtre modale : on ne peut pas la refuser, parce qu'il
+            n'y a rien derrière — la partie ne peut plus avancer. Une croix
+            dans un coin promettrait un jeu qui n'existe plus.
+            L'historique reste affiché juste en dessous, volontairement : le
+            meilleur argument de vente est ce que le joueur a déjà fait.
+          */}
+          {essaiEpuise && (
+            <div className="card center" style={{ marginBottom: 16 }}>
+              <span className="premium-modal-icon">
+                <Icon name="crown" size={26} />
+              </span>
+              <h2 style={{ fontSize: 22, margin: '14px 0 6px' }}>
+                Tes {trial?.total} chances d'essai sont passées
+              </h2>
+              <p className="muted small" style={{ margin: '0 auto 18px', maxWidth: 440 }}>
+                Le joueur mystère n'est pas encore tombé — et ta partie reste exactement où tu
+                l'as laissée. En t'abonnant, tu la reprends ici même avec{' '}
+                <strong>{chancesRendues} chances</strong> pour finir, et le joueur du jour
+                t'attend tous les matins.
+              </p>
+
+              <div className="row" style={{ gap: 8, justifyContent: 'center', marginBottom: 18 }}>
+                <span className="pill">
+                  <Icon name="target" size={13} /> meilleur score{' '}
+                  <strong className="mono">{bestScore}</strong>
+                </span>
+                <span className="pill">
+                  <Icon name="flame" size={13} /> {guesses.length} proposition
+                  {guesses.length > 1 ? 's' : ''}
+                </span>
+              </div>
+
+              <Link to="/premium?essai=epuise" className="btn btn-block btn-lg">
+                Continuer — à partir de 2,99 €/mois
+              </Link>
+              <p className="small faint" style={{ margin: '12px 0 0' }}>
+                Chaque proposition est évaluée par une IA, et chaque évaluation se paie. C'est
+                tout ce que finance l'abonnement.
+              </p>
+            </div>
+          )}
+
+          {!essaiEpuise && (
           <div className="card" style={{ marginBottom: 16 }}>
             <Gauge
               score={last?.score ?? null}
@@ -213,15 +297,23 @@ export default function Solo() {
             {notice && <div className="alert alert-info" style={{ marginTop: 12 }}>{notice}</div>}
 
             <div className="row row-between small muted" style={{ marginTop: 14 }}>
+              {/* Pendant l'essai, c'est LUI qui borne la partie, pas les
+                  vingt chances du jeu. Afficher « 17 restantes » à quelqu'un
+                  qui sera arrêté à la troisième serait un mensonge, et il
+                  s'en apercevrait au pire moment. */}
               <span>
-                <strong className="mono">{Math.max(0, maxAttempts - guesses.length)}</strong>{' '}
-                chance(s) restante(s) · meilleur score <strong className="mono">{bestScore}</strong>
+                <strong className="mono">
+                  {trial?.active ? trial.remaining : Math.max(0, maxAttempts - guesses.length)}
+                </strong>{' '}
+                chance(s) restante(s){trial?.active ? ' sur ton essai' : ''} · meilleur score{' '}
+                <strong className="mono">{bestScore}</strong>
               </span>
               <button className="btn-icon btn-text" onClick={surrender}>
                 Renoncer
               </button>
             </div>
           </div>
+          )}
 
           <div className="card">
             <div className="row row-between" style={{ marginBottom: 12 }}>

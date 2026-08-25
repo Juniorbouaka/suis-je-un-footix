@@ -7,6 +7,7 @@ import AuthModal from './AuthModal.jsx';
 import Icon from './Icon.jsx';
 import PremiumBadge from './PremiumBadge.jsx';
 import CreditBadge from './CreditBadge.jsx';
+import TrialBadge from './TrialBadge.jsx';
 import PitchBackground from './PitchBackground.jsx';
 import { ConsentBanner } from './Ads.jsx';
 
@@ -74,11 +75,17 @@ export default function Layout({ children }) {
               Un abonné voit ce qui lui reste ; celui qui ne l'est pas voit le
               prix d'entrée. Montrer « S'abonner » à quelqu'un qui paie déjà
               est la meilleure façon de lui faire croire qu'il paie pour rien.
+
+              Entre les deux, l'essai : tant qu'il court, ses chances se
+              comptent ici même, à la place où l'abonné lit son solde. C'est
+              le même besoin — savoir ce qu'il me reste avant de cliquer —
+              et il ne mérite pas un second emplacement à chercher.
             */}
             {hasAccess ? (
               <CreditBadge />
             ) : (
               <>
+                <TrialBadge />
                 {/* Le soutien avait sa place dans le pied de page, là où
                     personne ne descend. Un lien d'en-tête, discret mais
                     permanent, vaut mieux qu'une bannière. */}

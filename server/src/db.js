@@ -189,6 +189,47 @@ addColumn('users', 'credits_period_end', 'TEXT');
  */
 addColumn('users', 'credits_purchased', 'INTEGER NOT NULL DEFAULT 0');
 
+/*
+ * L'essai gratuit : combien de chances ce compte a-t-il déjà brûlées ?
+ *
+ * Un compteur cumulatif, jamais remis à zéro — l'essai se fait une fois
+ * dans la vie d'un compte, pas une fois par jour. Le défaut à 0 vaut aussi
+ * pour les comptes déjà en base : les 981 inscrits d'avant la bascule
+ * retrouvent huit chances pour découvrir ce que le jeu est devenu, ce qui
+ * est exactement la conversation qu'on veut avoir avec eux.
+ *
+ * Il vit sur `users` et non dans `credit_events` : ce n'est pas de
+ * l'argent, rien ne se rembourse ni ne se conteste, et un journal pour un
+ * entier qui ne fait que monter serait un journal qu'on ne lira jamais.
+ */
+addColumn('users', 'trial_guesses_used', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
+ * Les alertes de vente déjà envoyées.
+ *
+ * Une table pour une seule chose : ne pas prévenir deux fois du même
+ * encaissement. Chaque vente arrive par DEUX chemins — le retour du
+ * navigateur qui ouvre les droits tout de suite, et le webhook qui fait foi
+ * quelques secondes plus tard — et c'est une redondance qu'on veut garder.
+ * Ce qu'on ne veut pas, c'est deux e-mails identiques : au bout de la
+ * troisième fois, on cesse de les lire, et le jour où il faut en lire un on
+ * ne le voit pas.
+ *
+ * La référence est celle de la vente (session Stripe, abonnement + échéance,
+ * commande PayPal), pas celle de l'événement du fournisseur : deux
+ * événements différents qui décrivent le même encaissement doivent tomber
+ * sur la même clé. `billing_events`, elle, garde les identifiants
+ * d'événements pour l'idempotence du traitement — deux questions distinctes,
+ * deux tables.
+ */
+db.exec(`
+CREATE TABLE IF NOT EXISTS sale_alerts (
+  ref        TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`);
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS credit_events (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,

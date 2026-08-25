@@ -2,6 +2,8 @@ import { db } from './db.js';
 import { config } from './config.js';
 import { getSubscription } from './paypal.js';
 import { balanceOf, creditSummary, grantOnPlanChange, rechargeOnRenewal } from './credits.js';
+import { trialState } from './trial.js';
+import { notifySale } from './notify.js';
 
 /**
  * État de l'abonnement.
@@ -105,6 +107,65 @@ export function expireIfNeeded(user) {
  * devine. C'est ce qui évite de rétrograder un abonné au passage d'un
  * simple événement de paiement.
  */
+/**
+ * Prévient par e-mail qu'une vente vient d'avoir lieu.
+ *
+ * Posée ici, dans `writeRights`, parce que c'est le seul endroit du code où
+ * PayPal et Stripe se rejoignent : une alerte par encaisseur aurait divergé
+ * comme le reste avait divergé avant leur mise en commun, et on s'en serait
+ * aperçu en ne recevant rien pour la moitié des ventes.
+ *
+ * On distingue trois moments, et on ne dit rien pour tout le reste :
+ *
+ *   souscription   aucune échéance connue avant : c'est un nouvel abonné.
+ *   renouvellement l'échéance a AVANCÉ — c'est le même signal qui déclenche
+ *                  la recharge de crédits, et pour la même raison : une
+ *                  période vient d'être payée.
+ *   formule        le forfait a changé sur un compte déjà abonné.
+ *
+ * Le reste — synchronisations, webhooks de statut, résiliations — n'est pas
+ * de l'argent qui rentre. Les annoncer noierait les trois lignes qui
+ * comptent, et une boîte mail qu'on cesse d'ouvrir ne prévient plus de rien.
+ */
+function annoncerVente(userId, { provider, subscriptionId, plan, planAvant, echeanceAvant, nextUntil }) {
+  const formule = PLANS[plan];
+  const prix = formule ? `${formule.price} €/mois` : 'montant inconnu';
+  const label = formule?.label || plan || 'formule inconnue';
+
+  const apres = nextUntil ? Date.parse(nextUntil) : 0;
+  const avant = echeanceAvant ? Date.parse(echeanceAvant) : 0;
+
+  let kind = null;
+  let resume = null;
+
+  if (!echeanceAvant && !planAvant) {
+    kind = 'abonnement';
+    resume = `Nouvel abonné — ${label}, ${prix}`;
+  } else if (planAvant && plan !== planAvant) {
+    kind = 'formule';
+    resume = `Changement de formule — ${PLANS[planAvant]?.label || planAvant} → ${label}, ${prix}`;
+  } else if (apres && apres > avant) {
+    kind = 'renouvellement';
+    resume = `Renouvellement — ${label}, ${prix}`;
+  }
+
+  if (!kind) return;
+
+  notifySale({
+    kind,
+    // L'échéance entre dans la référence : c'est ce qui fait qu'un
+    // renouvellement du mois prochain est une autre vente, alors que le
+    // retour du navigateur et le webhook d'aujourd'hui n'en font qu'une.
+    ref: `${kind}:${subscriptionId || userId}:${nextUntil || 'sans-echeance'}`,
+    resume,
+    userId,
+    details: [
+      `Encaisseur : ${provider || 'inconnu'}`,
+      `Échéance   : ${nextUntil ? new Date(nextUntil).toLocaleDateString('fr-FR') : 'aucune'}`,
+    ],
+  });
+}
+
 function writeRights(userId, { provider, subscriptionId, status, planKey, until, active }) {
   const current = db
     .prepare('SELECT premium_until, subscription_plan FROM users WHERE id = ?')
@@ -153,6 +214,7 @@ function writeRights(userId, { provider, subscriptionId, status, planKey, until,
   if (abonne) {
     rechargeOnRenewal(userId, echeanceAvant);
     if (plan !== planAvant) grantOnPlanChange(userId, planAvant);
+    annoncerVente(userId, { provider, subscriptionId, plan, planAvant, echeanceAvant, nextUntil });
   }
 
   return {
@@ -264,6 +326,17 @@ export function billingSummary(user) {
   return {
     // Le droit d'entrer dans le jeu — vrai avec l'un ou l'autre forfait.
     hasAccess: Boolean(user.is_subscriber || user.is_premium),
+    /*
+     * L'essai, et le droit d'ouvrir la partie du jour qui en découle.
+     *
+     * Ils voyagent avec l'abonnement parce que c'est la même question côté
+     * joueur — « qu'est-ce que je peux faire maintenant ? » — et que
+     * l'écran de jeu la pose au chargement, avant tout appel de partie.
+     * Les séparer aurait demandé un second aller-retour pour afficher
+     * correctement le premier écran.
+     */
+    canPlay: Boolean(user.is_subscriber || user.is_premium) || trialState(user).remaining > 0,
+    trial: trialState(user),
     isPremium: Boolean(user.is_premium),
     // Abonné sans abonnement : administrateur, ou geste accordé à la main.
     // Il n'y a rien à résilier et aucune échéance à afficher — le profil doit

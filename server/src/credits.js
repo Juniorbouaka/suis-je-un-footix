@@ -1,5 +1,6 @@
 import { db } from './db.js';
 import { config, creditsForPlan, isAdminEmail } from './config.js';
+import { notifySale } from './notify.js';
 
 /**
  * Le grand livre des crédits.
@@ -198,6 +199,24 @@ export function grantPack(userId, credits, ref, reason = 'recharge-achetee') {
 
   const balance = balanceOf(userId);
   journal(userId, credits, reason, ref, balance);
+
+  /*
+   * L'alerte part d'ici plutôt que des deux routes qui appellent cette
+   * fonction, et c'est le même raisonnement que pour l'idempotence : on est
+   * après le `dejaVu`, donc sur le seul passage où des parties ont
+   * réellement été créditées. Prévenir depuis les appelants aurait envoyé
+   * deux e-mails pour un achat — le retour du navigateur et le webhook
+   * passent tous les deux ici, c'est précisément la redondance voulue.
+   */
+  const pack = config.credits.packs.find((p) => p.credits === credits);
+  notifySale({
+    kind: 'recharge',
+    ref: `recharge:${ref}`,
+    resume: `Recharge — ${credits} parties${pack ? ` (${pack.price} €)` : ''}`,
+    userId,
+    details: [`Solde      : ${balance} partie(s)`],
+  });
+
   return { ok: true, balance, credited: credits };
 }
 

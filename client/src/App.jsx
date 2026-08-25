@@ -47,6 +47,35 @@ function Subscribed({ children }) {
 }
 
 /*
+ * La porte du mot du jour — abonnement OU essai encore ouvert.
+ *
+ * Elle double `requirePlayAccess` côté serveur, comme `Subscribed` double
+ * le mur de paiement, et pour la même raison : éviter d'afficher un écran
+ * dont chaque bouton échouerait. Le refus qui compte reste celui du
+ * serveur.
+ *
+ * Deux portes et non une, parce que le jeu vend deux choses différentes :
+ * l'essai ouvre la vitrine — huit chances sur le joueur du jour — et rien
+ * d'autre. Les archives et les duels se paient en crédits et continuent de
+ * passer par `Subscribed` : si `canPlay` gardait tout, l'essai offrirait
+ * des parties qui coûtent de l'argent à servir.
+ *
+ * L'essai épuisé mène à l'offre en le disant : `essai=epuise` change les
+ * mots de la page, parce qu'on ne parle pas de la même façon à quelqu'un
+ * qui vient de jouer huit coups et à quelqu'un dont l'abonnement a expiré.
+ */
+function Essayable({ children }) {
+  const { isAuthenticated, canPlay, hasAccess, trial, loading } = useAuth();
+  if (loading) return <div className="spinner" style={{ marginTop: 80 }} />;
+  if (!isAuthenticated) return <Navigate to="/" replace />;
+  if (!canPlay) {
+    const motif = !hasAccess && trial?.exhausted ? 'essai=epuise' : 'requis=1';
+    return <Navigate to={`/premium?${motif}`} replace />;
+  }
+  return children;
+}
+
+/*
  * Le tableau de bord n'est qu'une vue : le serveur reste seul juge et
  * répond 404 à qui n'est pas administrateur. Masquer la page ici évite
  * simplement d'afficher un écran d'erreur à un joueur curieux.
@@ -64,13 +93,15 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Landing />} />
         {/* Les quatre écrans qui font jouer — donc les quatre qui appellent
-            l'API Claude — passent par le mur de paiement. */}
+            l'API Claude — passent par un mur. Celui du mot du jour laisse
+            entrer l'essai gratuit ; les trois autres, non : ce sont des
+            parties qui se paient en crédits. */}
         <Route
           path="/solo"
           element={
-            <Subscribed>
+            <Essayable>
               <Solo />
-            </Subscribed>
+            </Essayable>
           }
         />
         <Route

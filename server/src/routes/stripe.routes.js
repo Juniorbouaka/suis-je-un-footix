@@ -11,6 +11,7 @@ import {
   markProcessed,
 } from '../billing.js';
 import { creditSummary, grantPack } from '../credits.js';
+import { marquerDonEncaisse } from '../supporters.js';
 import {
   cancelSubscriptionAtPeriodEnd,
   changeSubscriptionPrice,
@@ -352,9 +353,7 @@ stripeRouter.post('/donate/confirm', limiter, async (req, res) => {
       return res.status(409).json({ error: "Le paiement n'est pas finalisé." });
     }
 
-    db.prepare(
-      "UPDATE donations SET status = 'COMPLETED', captured_at = datetime('now') WHERE order_id = ?"
-    ).run(sessionId);
+    marquerDonEncaisse(sessionId, { provider: 'stripe' });
 
     res.json({
       status: 'COMPLETED',
@@ -426,10 +425,8 @@ export async function stripeWebhook(req, res) {
             break;
           }
 
-          // Don ponctuel : on marque l'encaissement, rien d'autre à faire.
-          db.prepare(
-            "UPDATE donations SET status = 'COMPLETED', captured_at = datetime('now') WHERE order_id = ?"
-          ).run(objet.id);
+          // Don ponctuel : on marque l'encaissement, et l'alerte part de là.
+          marquerDonEncaisse(objet.id, { provider: 'stripe' });
           break;
         }
         // Abonnement : le compte vient du client_reference_id.

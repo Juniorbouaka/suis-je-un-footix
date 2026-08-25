@@ -168,6 +168,16 @@ export default function Premium() {
   const annule = params.get('annule');
   // Renvoyé ici par le mur de paiement : il a cliqué sur « Jouer ».
   const requis = params.get('requis');
+  /*
+   * Renvoyé ici par l'essai épuisé — et ce n'est pas la même personne.
+   *
+   * Celui qui arrive avec `requis` n'a pas encore joué : il faut lui
+   * expliquer pourquoi le jeu se paie. Celui qui arrive avec `essai=epuise`
+   * vient de jouer huit coups, il sait déjà ce qu'il achète et il a une
+   * partie en cours. Lui resservir l'explication, c'est le faire attendre
+   * devant la caisse.
+   */
+  const essaiEpuise = params.get('essai') === 'epuise';
 
   return (
     <div style={{ maxWidth: 820, margin: '0 auto' }}>
@@ -184,10 +194,17 @@ export default function Premium() {
         </p>
       </div>
 
-      {requis && (
+      {essaiEpuise ? (
         <div className="alert alert-info" style={{ marginBottom: 18 }}>
-          Jouer demande un abonnement. C'est le prix des évaluations : sans lui, le jeu s'arrête.
+          <strong>Ton essai est terminé.</strong> Ta partie du jour, elle, reste ouverte : choisis
+          une formule et tu la reprends là où tu l'as laissée.
         </div>
+      ) : (
+        requis && (
+          <div className="alert alert-info" style={{ marginBottom: 18 }}>
+            Jouer demande un abonnement. C'est le prix des évaluations : sans lui, le jeu s'arrête.
+          </div>
+        )
       )}
 
       {annule && (
@@ -219,8 +236,14 @@ export default function Premium() {
         </div>
       ) : !isAuthenticated ? (
         <div className="card center" style={{ marginBottom: 22 }}>
+          {/* Ce que voit un visiteur venu lire les prix avant d'avoir joué.
+              Lui parler d'abonnement d'abord, c'est lui demander de décider
+              sans rien savoir : l'essai passe devant, et il est la seule
+              raison pour laquelle créer un compte a un intérêt immédiat. */}
           <p className="muted">
-            Crée un compte pour t'abonner — c'est gratuit et ça prend 30 secondes.
+            Crée un compte et joue tes{' '}
+            <strong>{offer?.trialGuesses ?? 8} chances offertes</strong> avant de décider —
+            c'est gratuit, sans carte bancaire, et ça prend 30 secondes.
           </p>
         </div>
       ) : (

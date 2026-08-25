@@ -6,6 +6,7 @@ import { db } from './db.js';
 import { expireIfNeeded } from './billing.js';
 import { canUseTheme, DEFAULT_THEME } from './themes.js';
 import { isSupporter } from './supporters.js';
+import { canPlayDaily, trialState } from './trial.js';
 
 export function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
@@ -66,7 +67,7 @@ export function findUserById(id) {
       `SELECT id, username, email, avatar_url, stats_json, is_premium, is_subscriber,
               created_at, subscription_provider, subscription_id, subscription_status,
               subscription_plan, premium_until, pitch_theme,
-              last_login_at, last_seen_at
+              trial_guesses_used, last_login_at, last_seen_at
          FROM users WHERE id = ?`
     )
     .get(id);
@@ -123,6 +124,18 @@ export function publicUser(user) {
     // Deux droits distincts : entrer dans le jeu, et avoir le forfait haut.
     // Le client se sert du premier pour savoir s'il affiche le jeu ou le mur.
     hasAccess: hasPaidAccess(user),
+    /*
+     * Le droit d'ouvrir la partie du jour — abonnement OU essai en cours.
+     *
+     * Distinct de `hasAccess`, et les confondre coûterait dans les deux
+     * sens : le client ouvre l'écran de jeu sur `canPlay`, mais l'offre,
+     * les duels et les archives se décident toujours sur `hasAccess`. Un
+     * visiteur en essai n'est pas un abonné, il est en train de le devenir.
+     */
+    canPlay: hasPaidAccess(user) || trialState(user).remaining > 0,
+    // L'état de l'essai, pour que l'écran puisse compter à voix haute. Un
+    // essai qu'on ne voit pas fondre ne donne envie de rien.
+    trial: trialState(user),
     isPremium: Boolean(user.is_premium),
     plan: user.subscription_plan || null,
     isAdmin: isAdmin(user),
@@ -211,6 +224,40 @@ export function requirePaidAccess(req, res, next) {
 }
 
 /**
+ * Middleware Express : exige un abonnement OU un essai encore ouvert.
+ *
+ * C'est le mur de paiement du MOT DU JOUR, et lui seul. Les trois routes
+ * qu'il garde — lire la partie du jour, proposer, renoncer — sont la
+ * vitrine du jeu : c'est ce qu'il faut avoir joué pour vouloir s'abonner.
+ *
+ * Tout le reste continue de passer par `requirePaidAccess` : archives et
+ * duels se paient en crédits, les offrir ferait deux portes dérobées dans
+ * la caisse et le duel occuperait en prime un adversaire abonné qui n'a
+ * pas à servir de démonstration.
+ *
+ * Le refus reste un 402 `needsSubscription` : pour le client, un essai
+ * épuisé et un abonnement expiré mènent au même écran. `trialExhausted`
+ * n'est là que pour changer les mots — « tes huit chances sont passées »
+ * plutôt que « ton abonnement a expiré ».
+ */
+export function requirePlayAccess(req, res, next) {
+  requireAuth(req, res, () => {
+    if (!canPlayDaily(req.user)) {
+      const essai = trialState(req.user);
+      return res.status(402).json({
+        error: essai.total
+          ? `Ton essai de ${essai.total} chances est terminé. Prends un abonnement pour continuer à jouer.`
+          : 'Le jeu est réservé aux abonnés. Choisis ta formule pour commencer à jouer.',
+        needsSubscription: true,
+        trialExhausted: essai.exhausted,
+        trial: essai,
+      });
+    }
+    next();
+  });
+}
+
+/**
  * Middleware Express : exige un compte administrateur.
  *
  * On répond 404 et non 403 : une route d'administration ne doit pas
@@ -238,6 +285,12 @@ export function authenticateSocket(socket, next) {
   if (!payload) return next(new Error('Authentification requise.'));
   const user = findUserById(payload.sub);
   if (!user) return next(new Error('Compte introuvable.'));
+  /*
+   * L'essai gratuit ne passe PAS par ici, et c'est voulu : il ouvre le mot
+   * du jour, rien d'autre. Un duel, ce sont deux fois vingt propositions et
+   * un adversaire abonné mobilisé — ce n'est pas une démonstration, c'est
+   * une partie qui se paie.
+   */
   if (!hasPaidAccess(user)) {
     // Le message est lu tel quel par le client : il doit s'afficher à un
     // joueur, pas à un développeur.

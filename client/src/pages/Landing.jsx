@@ -10,7 +10,7 @@ import AdSlot from '../components/Ads.jsx';
 import SupportSection from '../components/SupportSection.jsx';
 
 export default function Landing() {
-  const { isAuthenticated, hasAccess } = useAuth();
+  const { isAuthenticated, hasAccess, canPlay, trial } = useAuth();
   const navigate = useNavigate();
   const [authOpen, setAuthOpen] = useState(false);
   const [intent, setIntent] = useState('/solo');
@@ -27,18 +27,24 @@ export default function Landing() {
 
   /*
    * Un clic sur « Jouer » mène à l'endroit exact où l'on en est : la partie
-   * pour un abonné, l'offre pour les autres, la création de compte pour un
-   * visiteur.
+   * pour un abonné, l'essai pour qui ne l'a pas encore brûlé, l'offre pour
+   * les autres, la création de compte pour un visiteur.
    *
-   * Envoyer tout le monde vers /solo pour laisser le mur de paiement rebondir
-   * marcherait aussi, mais ferait clignoter un écran de jeu avant la
-   * redirection — l'impression d'une porte qu'on ouvre puis qu'on referme au
-   * nez. Autant nommer le prix tout de suite.
+   * Envoyer tout le monde vers /solo pour laisser le mur rebondir marcherait
+   * aussi, mais ferait clignoter un écran de jeu avant la redirection —
+   * l'impression d'une porte qu'on ouvre puis qu'on referme au nez.
+   *
+   * Le droit consulté n'est pas le même selon la destination, et c'est tout
+   * l'objet de l'essai : `canPlay` pour le mot du jour, `hasAccess` pour le
+   * duel. Un visiteur en essai qui clique sur « Défier quelqu'un » voit donc
+   * le prix — c'est la bonne réponse, un duel mobilise un adversaire abonné.
    */
   const go = (path) => {
     setIntent(path);
     if (!isAuthenticated) return setAuthOpen(true);
-    navigate(hasAccess ? path : '/premium?requis=1');
+    const autorise = path === '/solo' ? canPlay : hasAccess;
+    if (autorise) return navigate(path);
+    navigate(!hasAccess && trial?.exhausted ? '/premium?essai=epuise' : '/premium?requis=1');
   };
 
   return (
@@ -65,19 +71,38 @@ export default function Landing() {
         </div>
 
         {/*
-          Le prix, dès la première page.
+          L'essai d'abord, le prix ensuite — et les deux sur la première page.
           Chaque proposition est un appel d'IA facturé : le jeu ne peut pas
           être gratuit, et le laisser croire pour l'annoncer trois écrans plus
-          loin serait la façon la plus sûre de perdre quelqu'un — non pas
-          parce qu'il refuse de payer, mais parce qu'on ne le lui avait pas dit.
+          loin serait la façon la plus sûre de perdre quelqu'un. Mais annoncer
+          le prix SEUL était l'autre façon de le perdre : on demandait de
+          payer pour une chose qu'il n'avait jamais vue tourner. L'essai
+          répond à ça, et il est ce qu'on met en avant — le prix vient après,
+          en toutes lettres, une fois qu'on a dit ce qu'on donne.
         */}
-        {!hasAccess && (
-          <p className="small muted" style={{ marginTop: 14 }}>
-            <Icon name="crown" size={13} /> Le jeu fonctionne à l'abonnement — à partir de 2,99 €
-            par mois, le joueur du jour tous les jours plus des parties pour les archives et les
-            duels. <Link to="/premium">Voir les formules</Link>.
-          </p>
-        )}
+        {!hasAccess &&
+          (trial?.exhausted ? (
+            /* L'essai est passé : lui promettre des chances offertes serait
+               un mensonge qu'il découvrirait au clic suivant. On lui parle
+               de ce qui reste vrai — sa partie du jour, et le prix. */
+            <p className="small muted" style={{ marginTop: 14 }}>
+              <Icon name="crown" size={13} /> <strong>Ton essai est terminé</strong> — ta partie
+              du jour, elle, reste ouverte. L'abonnement démarre à 2,99 € par mois et te la rend
+              là où tu l'as laissée. <Link to="/premium?essai=epuise">Voir les formules</Link>.
+            </p>
+          ) : (
+            <p className="small muted" style={{ marginTop: 14 }}>
+              <Icon name="gift" size={13} />{' '}
+              <strong>
+                {trial?.used > 0
+                  ? `Il te reste ${trial.remaining} chance${trial.remaining > 1 ? 's' : ''} d'essai`
+                  : `${trial?.total ?? stats?.trialGuesses ?? 8} chances offertes pour essayer`}
+              </strong>
+              , sans carte bancaire. Ensuite le jeu fonctionne à l'abonnement — à partir de
+              2,99 € par mois, le joueur du jour tous les jours plus des parties pour les
+              archives et les duels. <Link to="/premium">Voir les formules</Link>.
+            </p>
+          ))}
 
         <div className="countdown-card">
           <div>

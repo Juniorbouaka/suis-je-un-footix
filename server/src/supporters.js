@@ -1,5 +1,6 @@
 import { db } from './db.js';
 import { normalizeWord, isOffensive } from './claude.js';
+import { notifySale } from './notify.js';
 
 /**
  * Les soutiens.
@@ -76,4 +77,45 @@ export function mur(limite = 200) {
     )
     .all(limite)
     .map((r) => ({ name: r.name, at: r.at ? r.at.slice(0, 7) : null }));
+}
+
+/* ------------------------------------------------------------------ *
+ *  Encaissement
+ * ------------------------------------------------------------------ */
+
+/**
+ * Marque un don encaissé, et prévient.
+ *
+ * Quatre chemins mènent ici — capture PayPal, rattrapage d'une capture déjà
+ * faite, retour de Stripe, webhook Stripe — parce qu'un paiement doit être
+ * entériné qu'on revienne sur la page de remerciement ou non. Ils écrivaient
+ * chacun leur `UPDATE`, presque identique : l'alerte de vente aurait été
+ * recopiée quatre fois, et il aurait suffi d'un cinquième chemin ajouté plus
+ * tard pour qu'un don passe inaperçu.
+ *
+ * L'alerte ne part qu'une fois par commande : `notifySale` retient la
+ * référence, et les chemins concurrents tombent sur la même.
+ *
+ * @param {string} orderId  commande PayPal ou session Stripe
+ * @param {string} status   ce que dit l'encaisseur ; rien n'est annoncé
+ *                          tant que ce n'est pas 'COMPLETED'
+ */
+export function marquerDonEncaisse(orderId, { status = 'COMPLETED', provider = 'inconnu' } = {}) {
+  db.prepare(
+    "UPDATE donations SET status = ?, captured_at = datetime('now') WHERE order_id = ?"
+  ).run(status, orderId);
+
+  if (status !== 'COMPLETED') return null;
+
+  const don = db.prepare('SELECT * FROM donations WHERE order_id = ?').get(orderId);
+
+  notifySale({
+    kind: 'don',
+    ref: `don:${orderId}`,
+    resume: `Don — ${don?.amount ?? '?'} ${don?.currency || 'EUR'}`,
+    userId: don?.user_id || null,
+    details: [`Encaisseur : ${provider}`],
+  });
+
+  return don;
 }

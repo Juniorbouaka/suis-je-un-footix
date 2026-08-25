@@ -91,6 +91,8 @@ git status --short | grep -E "\.env$|footix\.db"   # ne doit rien afficher
    | `MAX_ATTEMPTS_PVP` | `20` |
    | `CREDITS_ACCESS` | `20` |
    | `CREDITS_UNLIMITED` | `100` |
+   | `TRIAL_GUESSES` | `8` — l'essai gratuit, en chances offertes sur le joueur du jour |
+   | `SALES_EMAIL` | *(vide)* — où arrivent les alertes de vente ; vide = `ADMIN_EMAILS` |
 
    Ne touche pas à `PORT` : Railway l'injecte.
 
@@ -101,6 +103,17 @@ git status --short | grep -E "\.env$|footix\.db"   # ne doit rien afficher
    `MAX_GAMES_PREMIUM` : les quotas journaliers n'existent plus, les crédits les remplacent.
    (`MAX_ATTEMPTS_FREE` est encore relue en second recours par `MAX_ATTEMPTS`, donc une valeur
    traînante y reste sans danger — les quatre autres n'ont plus aucun effet.)
+
+   `TRIAL_GUESSES` ouvre le jeu à qui n'a pas encore payé : **huit chances**, une fois par
+   compte, sur le joueur du jour uniquement — ni archives ni duels, qui se paient en crédits.
+   C'est ce qui remplace le mur payant sec, devant lequel on demandait 2,99 € à quelqu'un qui
+   n'avait jamais vu la jauge répondre. `0` referme le jeu comme avant. Le coût est borné : au
+   pire ~0,032 € par compte créé, une seule fois, et plafonné par `DAILY_API_BUDGET`.
+
+   ⚠️ **`RESEND_API_KEY` n'est plus seulement pour les mots de passe oubliés.** C'est elle qui
+   fait partir l'**alerte de vente** — un e-mail à chaque abonnement, renouvellement, changement
+   de formule, recharge et don. Sans elle, l'alerte n'est écrite que dans les logs de Railway,
+   et l'on continue de ne pas savoir qu'on a vendu.
 
    `CREDITS_ACCESS` et `CREDITS_UNLIMITED` sont les parties **supplémentaires** servies chaque
    mois. Le joueur du jour, lui, est compris dans les deux formules et ne décompte rien : ce

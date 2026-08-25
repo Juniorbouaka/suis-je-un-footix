@@ -5,6 +5,7 @@ import { todayUtc, puzzleNumber } from '../words.js';
 import { touch, onlineCount, peakCount } from '../presence.js';
 import { supporterIds } from '../supporters.js';
 import { currentMonth, monthlyRanking, pastChampions } from '../champions.js';
+import { trialTotal } from '../trial.js';
 
 export const leaderboardRouter = Router();
 
@@ -109,6 +110,16 @@ leaderboardRouter.get('/stats/global', (req, res) => {
     online: onlineCount(),
     peak: peakCount(),
     puzzleNumber: puzzleNumber(date),
+    /*
+     * Le nombre de chances offertes, dans la seule réponse que l'accueil
+     * obtienne sans compte.
+     *
+     * C'est l'argument principal de la page — « 8 chances offertes » — et il
+     * s'adresse par définition à quelqu'un qui n'est pas connecté : le lire
+     * dans le profil ne servirait à rien, et le figer dans le code du client
+     * le ferait mentir le jour où TRIAL_GUESSES change.
+     */
+    trialGuesses: trialTotal(),
     bestToday: best ? { username: best.username, score: best.score } : null,
   });
 });

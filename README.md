@@ -240,11 +240,45 @@ client/                  React 18 + Vite
 
 ## Règles et scoring
 
-**Jouer demande un abonnement.** Toutes les routes qui appellent l'API Claude passent par
-`requirePaidAccess`, et la socket refuse la poignée de main à un compte sans abonnement — un
-seul point de passage, aucun événement ajouté demain ne peut lui échapper par oubli. Le refus
-répond **402** et non 403 : le client sait alors qu'il ne manque pas un droit mais un
-abonnement, et renvoie vers l'offre.
+**Jouer demande un abonnement — après un essai de 8 chances.** Toutes les routes qui appellent
+l'API Claude passent par un mur, et la socket refuse la poignée de main à un compte sans
+abonnement : un seul point de passage, aucun événement ajouté demain ne peut lui échapper par
+oubli. Le refus répond **402** et non 403 : le client sait alors qu'il ne manque pas un droit
+mais un abonnement, et renvoie vers l'offre.
+
+Deux murs, et la différence est toute la stratégie commerciale du jeu :
+
+| | garde | ce qui passe |
+|---|---|---|
+| Mot du jour (`/daily-word`, `/guess`, `/surrender`) | `requirePlayAccess` | abonnement **ou** essai en cours |
+| Archives, duels, thèmes, statistiques | `requirePaidAccess` | abonnement seul |
+
+### L'essai
+
+**Huit chances offertes, une fois par compte, sur le joueur du jour** (`TRIAL_GUESSES`, mettre
+`0` referme le jeu comme avant). Le mur payant à l'entrée avait un défaut que le chiffre
+d'affaires ne montrait pas : on demandait 2,99 € à quelqu'un qui n'avait jamais vu la jauge
+répondre. Personne ne s'abonne à un jeu dont il ignore s'il l'amuse, et personne ne devient
+accro à ce qu'il n'a pas joué.
+
+Huit et non vingt, parce que c'est **la moitié d'une partie type** : assez pour comprendre la
+mécanique et voir le score monter, pas assez pour finir. Le mur tombe au moment précis où l'on
+veut continuer — pas après une partie terminée qui a déjà refermé la boucle.
+
+Des **chances** et non une partie entière : une partie offerte coûte jusqu'à 0,08 € d'API et se
+termine sur une réponse, le visiteur repartant satisfait sans rien devoir. Huit chances coûtent
+au pire 0,032 € et laissent la question ouverte.
+
+La partie **n'est pas refermée** quand l'essai s'épuise : aucune ligne n'est écrite dans
+`daily_results`. Celui qui s'abonne reprend la partie du jour là où il l'a laissée, avec ce qui
+reste des vingt chances — « tu y étais presque » vend mieux que « reviens demain ».
+
+Le compteur (`users.trial_guesses_used`) est **cumulatif et attaché au compte** : l'essai se
+fait une fois dans la vie d'un compte, pas une fois par jour. Il est décompté **après**
+l'évaluation, jamais avant — une proposition que l'évaluateur a refusé de noter n'a rien montré,
+elle ne coûte donc rien. Sa limite est celle de tous les essais du monde : un compte est
+gratuit, rien n'empêche de se réinscrire. C'est `DAILY_API_BUDGET` qui protège la caisse contre
+l'abus en volume, pas ce compteur.
 
 **Solo** — **20 chances par partie**, pour tout le monde, quelle que soit la formule
 (`MAX_ATTEMPTS`). Au-delà, la partie est perdue : le joueur est révélé avec sa fiche, score nul.
@@ -525,6 +559,41 @@ commande fournie par le navigateur.
 `DONATE_URL` ajoute un lien vers une page tierce (ex. `https://paypal.me/tonpseudo`). Ne jamais
 y mettre une adresse e-mail : une adresse en clair sur une page publique est aspirée par les
 robots en quelques jours.
+
+### L'alerte de vente
+
+**Chaque encaissement part par e-mail** (`server/src/notify.js`). Le problème qu'il résout n'est
+pas technique : l'argent tombe chez Stripe et PayPal, le jeu tourne ici, et rien ne reliait les
+deux. Une vente se découvrait en allant la chercher dans un tableau de bord tiers — autant dire
+trop tard, ou jamais. Un jeu dont on ignore qu'il vend est un jeu qu'on croit mort.
+
+Cinq moments déclenchent un message : **nouvel abonné**, **renouvellement**, **changement de
+formule**, **achat de recharge**, **don**. Rien d'autre — les synchronisations et les webhooks
+de statut ne sont pas de l'argent qui rentre, et les annoncer noierait les lignes qui comptent.
+
+| | |
+|---|---|
+| Destinataires | `SALES_EMAIL` (virgules), sinon `ADMIN_EMAILS` |
+| Départ réel | demande `RESEND_API_KEY` ; sans elle, l'alerte n'est écrite que dans les logs |
+| Objet | le montant et la formule — c'est souvent tout ce qu'on lira |
+| Corps | qui, quel encaisseur, l'échéance, puis **le total** : « 14 abonné(s) actif(s) · 3 vente(s) aujourd'hui ». Une vente seule est une anecdote, une vente avec son total est une information. |
+
+**Une vente, un e-mail.** Chaque encaissement arrive par deux chemins — le retour du navigateur
+qui ouvre les droits tout de suite, puis le webhook qui fait foi — et cette redondance est
+voulue côté droits. Côté boîte mail, non : la table `sale_alerts` retient la référence de la
+**vente** (session Stripe, abonnement + échéance, commande PayPal) et non celle de l'événement,
+ce qui fait tomber les deux chemins sur la même clé. À distinguer de `billing_events`, qui garde
+les identifiants d'événements pour l'idempotence du traitement : deux questions, deux tables.
+
+**Prévenir ne peut jamais faire échouer l'encaissement.** Tout est avalé dans `notifySale` —
+fournisseur absent, réseau coupé, adresse invalide — et l'envoi part sans `await`. Un webhook
+qui répondrait 500 parce qu'un e-mail n'est pas parti serait rejoué par Stripe pendant trois
+jours, alors que l'argent est déjà arrivé.
+
+Les points de branchement sont les endroits où PayPal et Stripe se rejoignent, jamais les routes
+elles-mêmes : `writeRights` (abonnements), `grantPack` (recharges), `marquerDonEncaisse` (dons).
+Une alerte par encaisseur aurait divergé comme le reste avait divergé avant leur mise en commun,
+et on s'en serait aperçu en ne recevant rien pour la moitié des ventes.
 
 ### Garde-fou de dépense
 

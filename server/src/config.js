@@ -122,6 +122,28 @@ export const config = {
      * même nombre de balles.
      */
     maxAttempts: Number(process.env.MAX_ATTEMPTS || process.env.MAX_ATTEMPTS_FREE || 20),
+
+    /*
+     * L'ESSAI : huit chances offertes, une fois, sur le mot du jour.
+     *
+     * Le jeu payant à l'entrée avait un défaut que le chiffre d'affaires ne
+     * montrait pas : on demandait 2,99 € à quelqu'un qui n'avait jamais vu
+     * la jauge répondre. Personne ne s'abonne à un jeu dont il ignore s'il
+     * l'amuse, et personne ne devient accro à ce qu'il n'a pas joué.
+     *
+     * Huit et non vingt : c'est la moitié d'une partie type. De quoi
+     * comprendre la mécanique et voir le score monter, pas de quoi finir —
+     * le mur tombe au moment où l'on veut continuer, pas après une partie
+     * terminée qui a déjà refermé la boucle.
+     *
+     * Le coût est borné et connu : huit propositions au pire ~0,032 € par
+     * compte créé, une seule fois dans sa vie. C'est un budget de
+     * prospection, pas une fuite — et il est plafonné par-dessus le marché
+     * par DAILY_API_BUDGET.
+     *
+     * Mettre 0 referme le jeu comme avant, sans toucher au code.
+     */
+    trialGuesses: Number(process.env.TRIAL_GUESSES || 8),
     // Duel : vingt essais chacun, même chiffre qu'en solo et quel que soit
     // le forfait. C'est le seul nombre du jeu que l'argent ne change pas —
     // deux adversaires qui ne jouent pas avec le même nombre de balles ne
@@ -271,6 +293,28 @@ export const config = {
   mail: {
     apiKey: process.env.RESEND_API_KEY || '',
     from: process.env.MAIL_FROM || 'Suis-je un footix ? <onboarding@resend.dev>',
+  },
+
+  /*
+   * L'alerte de vente.
+   *
+   * À qui écrire quand quelqu'un paie. Vide = on retombe sur ADMIN_EMAILS,
+   * qui est déjà la liste de ceux qui pilotent le jeu : dans l'immense
+   * majorité des cas c'est la même personne, et une seconde variable à
+   * renseigner pour dire la même chose est une variable qu'on oublie de
+   * renseigner. SALES_EMAIL existe pour le jour où la comptabilité et
+   * l'administration ne seront plus la même adresse.
+   *
+   * Pourquoi cette alerte existe : les encaissements arrivent chez Stripe
+   * et PayPal, pas ici. Sans e-mail, une vente se découvre en allant la
+   * chercher — c'est-à-dire trop tard, ou jamais. Un jeu dont on ignore
+   * qu'il vend est un jeu qu'on croit mort.
+   */
+  notify: {
+    salesTo: (process.env.SALES_EMAIL || '')
+      .split(',')
+      .map((e) => e.trim())
+      .filter(Boolean),
   },
 
   /*

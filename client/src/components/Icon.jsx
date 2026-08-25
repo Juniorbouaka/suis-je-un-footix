@@ -126,6 +126,16 @@ const PATHS = {
   heart: (
     <path d="M12 20.5S3.5 15 3.5 9.2A4.7 4.7 0 0 1 12 6.5a4.7 4.7 0 0 1 8.5 2.7c0 5.8-8.5 11.3-8.5 11.3z" />
   ),
+  // L'essai gratuit : un paquet cadeau. C'est le seul endroit du jeu où
+  // l'on donne quelque chose, autant que l'icône le dise.
+  gift: (
+    <>
+      <rect x="3.5" y="10" width="17" height="10.5" rx="1.6" />
+      <path d="M2.5 6.5h19V10h-19z" />
+      <path d="M12 6.5v14" />
+      <path d="M12 6.5C10.5 6.5 7 6.6 7 4.6A2.1 2.1 0 0 1 12 4a2.1 2.1 0 0 1 5 .6c0 2-3.5 1.9-5 1.9z" />
+    </>
+  ),
   palette: (
     <>
       <path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.9 1.8-1.8 0-1.2-1-1.6-1-2.7 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-3.9-4-7-9-7z" />

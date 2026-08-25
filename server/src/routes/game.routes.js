@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { db } from '../db.js';
-import { requireAuth, requirePaidAccess } from '../auth.js';
+import { hasPaidAccess, requireAuth, requirePaidAccess, requirePlayAccess } from '../auth.js';
 import { config, attemptsFor } from '../config.js';
 import {
   evaluateProximity,
@@ -17,6 +17,7 @@ import { evaluateSolo, listFor } from '../achievements.js';
 import { PITCH_THEMES, DEFAULT_THEME, findTheme, canUseTheme } from '../themes.js';
 import { duelQuota } from '../duels.js';
 import { creditSummary } from '../credits.js';
+import { consumeTrial, trialState } from '../trial.js';
 
 export const gameRouter = Router();
 
@@ -80,15 +81,20 @@ function elapsedSeconds(userId, date) {
 
 /*
  * Les trois routes qui font jouer — lire la partie du jour, proposer,
- * abandonner — exigent un abonnement. Ce sont elles qui appellent l'API
- * Claude, et donc elles qui coûtent.
+ * renoncer — demandent un abonnement OU un essai encore ouvert. Ce sont
+ * elles qui appellent l'API Claude, et donc elles qui coûtent.
+ *
+ * `requirePlayAccess` et non `requirePaidAccess` : le mot du jour est la
+ * vitrine, c'est ce qu'il faut avoir joué pour vouloir s'abonner. Huit
+ * chances offertes, puis le mur. Les archives et les duels, eux, restent
+ * derrière `requirePaidAccess` — ils se paient en crédits.
  *
  * `/daily-word` est gardée au même titre que `/guess` : elle livre les
  * indices de la journée (longueur, difficulté, catégorie), c'est-à-dire le
  * contenu du jour. La laisser ouverte reviendrait à vendre l'entrée d'une
  * salle dont la porte reste entrebâillée.
  */
-gameRouter.get('/daily-word', requirePaidAccess, async (req, res) => {
+gameRouter.get('/daily-word', requirePlayAccess, async (req, res) => {
   const date = todayUtc();
 
   const puzzle = publicDailyWord(date);
@@ -109,6 +115,10 @@ gameRouter.get('/daily-word', requirePaidAccess, async (req, res) => {
     // partie-ci — le mot du jour est inclus — mais l'écran affiche le solde
     // en permanence, et il doit pouvoir le faire sans un second aller-retour.
     credits: creditSummary(req.user.id),
+    // L'essai, pour que l'écran compte à voix haute. Un compteur qu'on ne
+    // voit pas fondre ne donne envie de rien — et celui qui découvre le jeu
+    // doit savoir ce qui l'attend au bout, pas le découvrir sur un refus.
+    trial: trialState(req.user),
     solved: Boolean(result && result.outcome === 'found'),
     surrendered: Boolean(result && result.outcome === 'surrendered'),
     result: result
@@ -129,7 +139,7 @@ gameRouter.get('/daily-word', requirePaidAccess, async (req, res) => {
  *  POST /api/guess — proposition d'un mot
  * -------------------------------------------------------------- */
 
-gameRouter.post('/guess', requirePaidAccess, guessLimiter, throttlePerSecond, async (req, res) => {
+gameRouter.post('/guess', requirePlayAccess, guessLimiter, throttlePerSecond, async (req, res) => {
   const date = todayUtc();
   const check = validateGuess(req.body?.word);
   if (!check.ok) return res.status(400).json({ error: check.error });
@@ -218,6 +228,21 @@ gameRouter.post('/guess', requirePaidAccess, guessLimiter, throttlePerSecond, as
 
   const remaining = Math.max(0, cap - attempt);
 
+  /*
+   * L'essai se décompte ICI, et pas plus haut.
+   *
+   * Une proposition que l'évaluateur a refusé de noter (plafond de dépense,
+   * panne) rend la main plus haut sans rien enregistrer : elle n'a rien
+   * montré au visiteur, elle n'a donc pas à lui coûter une de ses huit
+   * chances. Même principe que le non-débit des crédits sur panne — on ne
+   * facture pas un service qu'on n'a pas rendu, fût-il gratuit.
+   *
+   * Un compte payant ne consomme rien : il lit son état sans y toucher.
+   * Sans ce test, un abonné verrait son essai fondre pour rien et le
+   * retrouverait vide le jour où il résilierait.
+   */
+  const essai = hasPaidAccess(req.user) ? trialState(req.user) : consumeTrial(req.user.id);
+
   const payload = {
     word: check.word,
     score: evaluation.score,
@@ -229,6 +254,21 @@ gameRouter.post('/guess', requirePaidAccess, guessLimiter, throttlePerSecond, as
     maxAttempts: cap,
     found,
     source: evaluation.source,
+    // L'essai après cette proposition : le compteur descend sous les yeux
+    // du joueur plutôt que de le cueillir par un refus à la huitième.
+    trial: essai,
+    /*
+     * Le mur, annoncé dans la réponse qui le déclenche.
+     *
+     * Le client pourrait le déduire de `trial.remaining === 0`, mais un
+     * drapeau nommé se lit d'un coup d'œil et ne se recalcule pas de trois
+     * façons dans trois écrans. La partie du jour n'est PAS refermée pour
+     * autant : aucune ligne n'est écrite dans `daily_results`, le joueur
+     * qui s'abonne reprend cette partie-ci là où il l'a laissée, avec ses
+     * vingt chances. C'est le meilleur argument de vente qu'on ait — « tu y
+     * étais presque » vaut mieux que « reviens demain ».
+     */
+    trialExhausted: essai.exhausted,
   };
 
   // Chances épuisées sans avoir trouvé : la partie du jour est perdue.
@@ -329,7 +369,7 @@ gameRouter.get('/duel/quota', requireAuth, (req, res) => {
  *  POST /api/surrender — abandonner la partie du jour
  * -------------------------------------------------------------- */
 
-gameRouter.post('/surrender', requirePaidAccess, async (req, res) => {
+gameRouter.post('/surrender', requirePlayAccess, async (req, res) => {
   const date = todayUtc();
   if (resultRow(req.user.id, date)) {
     return res.status(409).json({ error: 'Partie déjà terminée.' });

@@ -48,6 +48,10 @@ billingRouter.get('/offer', (req, res) => {
     // à connaître le détail pour savoir s'il peut afficher l'offre.
     enabled: Object.keys(PLANS).some((k) => Boolean(PLANS[k].planId()) || stripeOk(k)),
     currency: config.premium.currency,
+    // L'essai, servi avec l'offre : la page de prix est lue par des gens qui
+    // n'ont pas de compte, donc pas de profil où lire le chiffre. Le figer
+    // dans le code du client le ferait mentir le jour où TRIAL_GUESSES change.
+    trialGuesses: config.game.trialGuesses,
     donateUrl: config.donateUrl || null,
     providers: {
       paypal: paypalEnabled,
