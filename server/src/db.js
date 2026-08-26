@@ -205,6 +205,27 @@ addColumn('users', 'credits_purchased', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('users', 'trial_guesses_used', 'INTEGER NOT NULL DEFAULT 0');
 
 /*
+ * Le duel offert : combien ce compte en a-t-il déjà consommé ?
+ *
+ * Un second compteur et non une seconde soustraction dans le premier : les
+ * deux essais ne comptent pas la même chose — des propositions d'un côté,
+ * des parties de l'autre — et un compteur unique aurait fait qu'une partie
+ * du jour bien accrochée mange le duel offert, ou l'inverse. Ce sont deux
+ * démonstrations distinctes, elles ont chacune leur budget.
+ *
+ * Il DESCEND parfois : un duel formé puis annulé faute de crédits chez
+ * l'adversaire rend son essai à celui qui l'avait avancé. C'est la seule
+ * différence avec `trial_guesses_used`, qui ne fait que monter — et elle
+ * vient de ce qu'on offre ici une partie entière, qui peut ne jamais avoir
+ * lieu. Ne pas la rendre reviendrait à facturer un duel qui n'a pas eu
+ * lieu, en monnaie d'essai.
+ *
+ * Le défaut à 0 vaut pour les comptes déjà en base : les inscrits d'avant
+ * ont droit à leur duel eux aussi.
+ */
+addColumn('users', 'trial_duels_used', 'INTEGER NOT NULL DEFAULT 0');
+
+/*
  * Les alertes de vente déjà envoyées.
  *
  * Une table pour une seule chose : ne pas prévenir deux fois du même

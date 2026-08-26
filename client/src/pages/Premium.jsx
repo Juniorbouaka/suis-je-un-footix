@@ -178,6 +178,13 @@ export default function Premium() {
    * devant la caisse.
    */
   const essaiEpuise = params.get('essai') === 'epuise';
+  /*
+   * Renvoyé ici par le duel offert déjà joué — et c'est encore une autre
+   * personne. Celui-là vient de jouer une partie entière contre quelqu'un,
+   * il n'a rien à découvrir : il a une revanche en tête. On lui parle de la
+   * revanche, pas du principe du jeu.
+   */
+  const duelEpuise = params.get('duel') === 'epuise';
 
   return (
     <div style={{ maxWidth: 820, margin: '0 auto' }}>
@@ -194,7 +201,13 @@ export default function Premium() {
         </p>
       </div>
 
-      {essaiEpuise ? (
+      {duelEpuise ? (
+        <div className="alert alert-info" style={{ marginBottom: 18 }}>
+          <strong>C'était ton duel offert.</strong> La revanche, elle, se paie — comme chaque
+          partie en plus du joueur du jour. Les deux formules donnent des duels ; l'Illimité en
+          donne près de quatre fois plus.
+        </div>
+      ) : essaiEpuise ? (
         <div className="alert alert-info" style={{ marginBottom: 18 }}>
           <strong>Ton essai est terminé.</strong> Ta partie du jour, elle, reste ouverte : choisis
           une formule et tu la reprends là où tu l'as laissée.
@@ -241,9 +254,12 @@ export default function Premium() {
               sans rien savoir : l'essai passe devant, et il est la seule
               raison pour laquelle créer un compte a un intérêt immédiat. */}
           <p className="muted">
-            Crée un compte et joue tes{' '}
-            <strong>{offer?.trialGuesses ?? 8} chances offertes</strong> avant de décider —
-            c'est gratuit, sans carte bancaire, et ça prend 30 secondes.
+            Crée un compte et essaie avant de décider :{' '}
+            <strong>
+              {offer?.trialGuesses ?? 8} chances sur le joueur du jour et{' '}
+              {offer?.trialDuels ?? 1} duel offert
+            </strong>{' '}
+            — c'est gratuit, sans carte bancaire, et ça prend 30 secondes.
           </p>
         </div>
       ) : (

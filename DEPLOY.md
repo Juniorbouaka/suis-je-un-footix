@@ -92,6 +92,7 @@ git status --short | grep -E "\.env$|footix\.db"   # ne doit rien afficher
    | `CREDITS_ACCESS` | `20` |
    | `CREDITS_UNLIMITED` | `100` |
    | `TRIAL_GUESSES` | `8` — l'essai gratuit, en chances offertes sur le joueur du jour |
+   | `TRIAL_DUELS` | `1` — le duel offert, en parties entières, une fois par compte |
    | `SALES_EMAIL` | *(vide)* — où arrivent les alertes de vente ; vide = `ADMIN_EMAILS` |
 
    Ne touche pas à `PORT` : Railway l'injecte.
@@ -105,10 +106,22 @@ git status --short | grep -E "\.env$|footix\.db"   # ne doit rien afficher
    traînante y reste sans danger — les quatre autres n'ont plus aucun effet.)
 
    `TRIAL_GUESSES` ouvre le jeu à qui n'a pas encore payé : **huit chances**, une fois par
-   compte, sur le joueur du jour uniquement — ni archives ni duels, qui se paient en crédits.
-   C'est ce qui remplace le mur payant sec, devant lequel on demandait 2,99 € à quelqu'un qui
-   n'avait jamais vu la jauge répondre. `0` referme le jeu comme avant. Le coût est borné : au
-   pire ~0,032 € par compte créé, une seule fois, et plafonné par `DAILY_API_BUDGET`.
+   compte, sur le joueur du jour uniquement — les archives se paient en crédits. C'est ce qui
+   remplace le mur payant sec, devant lequel on demandait 2,99 € à quelqu'un qui n'avait jamais
+   vu la jauge répondre. `0` referme le jeu comme avant. Le coût est borné : au pire ~0,032 €
+   par compte créé, une seule fois, et plafonné par `DAILY_API_BUDGET`.
+
+   `TRIAL_DUELS` fait la même chose pour le duel : **une partie entière**, une fois par compte.
+   Entière et non tronquée, parce qu'on ne coupe pas une partie à deux au milieu sans priver
+   l'adversaire de la sienne, qu'il a payée. C'est le mode qui fait revenir — on s'abonne parce
+   qu'un ami vous a mis une raclée — et c'était le seul qu'on vendait sans jamais le laisser
+   voir. Il paie **le siège de son joueur** : la file aléatoire, jamais une invitation, qui en
+   coûte deux puisqu'elle offre la partie d'un tiers. Coût borné à ~0,08 € par compte créé,
+   plafonné lui aussi par `DAILY_API_BUDGET`. `0` referme les duels aux abonnés comme avant.
+
+   Les deux compteurs sont **indépendants** : celui qui a brûlé ses huit chances garde son duel.
+   Et comme tous les essais du monde, ils sont attachés au compte — un compte est gratuit, rien
+   n'empêche de se réinscrire. C'est `DAILY_API_BUDGET` qui protège la caisse, pas eux.
 
    ⚠️ **`RESEND_API_KEY` n'est plus seulement pour les mots de passe oubliés.** C'est elle qui
    fait partir l'**alerte de vente** — un e-mail à chaque abonnement, renouvellement, changement

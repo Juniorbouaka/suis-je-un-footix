@@ -246,14 +246,19 @@ abonnement : un seul point de passage, aucun événement ajouté demain ne peut 
 oubli. Le refus répond **402** et non 403 : le client sait alors qu'il ne manque pas un droit
 mais un abonnement, et renvoie vers l'offre.
 
-Deux murs, et la différence est toute la stratégie commerciale du jeu :
+Trois murs, et la différence est toute la stratégie commerciale du jeu :
 
 | | garde | ce qui passe |
 |---|---|---|
-| Mot du jour (`/daily-word`, `/guess`, `/surrender`) | `requirePlayAccess` | abonnement **ou** essai en cours |
-| Archives, duels, thèmes, statistiques | `requirePaidAccess` | abonnement seul |
+| Mot du jour (`/daily-word`, `/guess`, `/surrender`) | `requirePlayAccess` | abonnement **ou** chances d'essai |
+| Duel (poignée de main de la socket) | `canPlayDuel` | abonnement, **ou** duel offert, **ou** duel déjà en cours |
+| Archives, thèmes, statistiques | `requirePaidAccess` | abonnement seul |
 
-### L'essai
+Deux essais distincts, qui s'épuisent séparément : celui qui a brûlé ses huit chances garde son
+duel, celui qui a joué son duel garde ses chances. Un seul compteur aurait fermé les deux portes
+d'un coup — et une partie du jour bien accrochée aurait mangé le duel, ou l'inverse.
+
+### L'essai du mot du jour
 
 **Huit chances offertes, une fois par compte, sur le joueur du jour** (`TRIAL_GUESSES`, mettre
 `0` referme le jeu comme avant). Le mur payant à l'entrée avait un défaut que le chiffre
@@ -279,6 +284,42 @@ l'évaluation, jamais avant — une proposition que l'évaluateur a refusé de n
 elle ne coûte donc rien. Sa limite est celle de tous les essais du monde : un compte est
 gratuit, rien n'empêche de se réinscrire. C'est `DAILY_API_BUDGET` qui protège la caisse contre
 l'abus en volume, pas ce compteur.
+
+### Le duel offert
+
+**Un duel offert, une fois par compte** (`TRIAL_DUELS`, mettre `0` referme le duel aux abonnés
+comme avant). Huit chances sur le mot du jour montrent la mécanique ; elles ne montrent pas le
+jeu. Ce qui fait revenir et ce qui se raconte, c'est le duel — on ne s'abonne pas pour jouer
+seul, on s'abonne parce qu'un ami vous a mis une raclée. C'était pourtant le seul mode que
+personne ne pouvait voir avant de payer : on vendait à l'aveugle sa meilleure carte.
+
+Une partie **entière**, alors que le solo s'arrête au milieu, et ce n'est pas une générosité :
+un duel tronqué n'existe pas. On ne peut pas couper une partie à deux au huitième coup sans
+priver l'adversaire de la sienne, qu'il a payée. C'est le seul endroit du jeu où l'essai doit
+aller jusqu'au bout. Le coût reste borné — vingt propositions au pire, ~0,08 € par compte créé.
+
+L'essai couvre **le siège de son joueur**, pas la note entière : il paie l'entrée dans la file
+aléatoire, jamais une invitation. Inviter coûte deux parties parce qu'on offre celle de son
+adversaire, et un essai qui paierait pour un tiers ne serait plus un essai. **Répondre** à une
+invitation reste gratuit pour tout le monde et ne consomme rien : cette partie-là est déjà
+réglée par l'hôte.
+
+Il se consomme **à la formation du salon** (`payerDuel`), au moment où un adversaire existe —
+attendre dix minutes dans la file n'a jamais fait jouer personne. Et il **se rend** si le duel
+est annulé faute de crédits en face : c'est la seule différence avec `trial_guesses_used`, qui
+ne fait que monter, et elle vient de ce qu'on offre ici une partie entière, qui peut ne jamais
+avoir lieu.
+
+Conséquence à ne pas manquer : l'essai étant décompté dès la première seconde, la poignée de
+main laisse aussi entrer **un duel déjà en cours**. Sans cette troisième porte, rafraîchir la
+page au milieu de son unique duel gratuit vaudrait forfait vingt secondes plus tard — on aurait
+fait payer l'essai d'une défaite. `Duellable` garde `/duel` côté client, mais **pas l'arène** :
+c'est le serveur qui dit s'il y a une partie (`no-room`), pas un drapeau lu dans le profil.
+
+Dernier piège, celui qui se recopie de travers : côté écran comme côté socket, la question est
+`free.active` et non `free.remaining`. Un abonné garde un compteur d'essai intact qu'il
+n'utilisera jamais — c'est son stock qui paie ses duels — et lire `remaining` allumerait le
+bouton d'un abonné à sec, refusé ensuite à la facture.
 
 **Solo** — **20 chances par partie**, pour tout le monde, quelle que soit la formule
 (`MAX_ATTEMPTS`). Au-delà, la partie est perdue : le joueur est révélé avec sa fiche, score nul.

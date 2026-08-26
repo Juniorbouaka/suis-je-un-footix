@@ -2,7 +2,7 @@ import { db } from './db.js';
 import { config } from './config.js';
 import { getSubscription } from './paypal.js';
 import { balanceOf, creditSummary, grantOnPlanChange, rechargeOnRenewal } from './credits.js';
-import { trialState } from './trial.js';
+import { duelTrialState, trialState } from './trial.js';
 import { notifySale } from './notify.js';
 
 /**
@@ -337,6 +337,15 @@ export function billingSummary(user) {
      */
     canPlay: Boolean(user.is_subscriber || user.is_premium) || trialState(user).remaining > 0,
     trial: trialState(user),
+    /*
+     * Le duel offert voyage avec le reste, et pour la même raison : c'est
+     * toujours la même question côté joueur, « qu'est-ce que je peux faire
+     * maintenant ? ». L'écran d'accueil y répond pour trois boutons d'un
+     * coup — jouer, défier, s'abonner — et il ne peut pas le faire en trois
+     * allers-retours.
+     */
+    canDuel: Boolean(user.is_subscriber || user.is_premium) || duelTrialState(user).remaining > 0,
+    duelTrial: duelTrialState(user),
     isPremium: Boolean(user.is_premium),
     // Abonné sans abonnement : administrateur, ou geste accordé à la main.
     // Il n'y a rien à résilier et aucune échéance à afficher — le profil doit

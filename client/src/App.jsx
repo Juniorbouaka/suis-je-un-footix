@@ -76,6 +76,35 @@ function Essayable({ children }) {
 }
 
 /*
+ * La porte du duel — abonnement OU duel offert.
+ *
+ * La troisième porte du jeu, et la troisième pour la même raison que les
+ * deux autres : ce qu'on laisse essayer n'est pas ce qu'on vend. `Essayable`
+ * ouvre le mot du jour à huit chances, celle-ci ouvre UN duel entier, et
+ * `Subscribed` garde les archives, qui n'ont rien à démontrer de plus.
+ *
+ * Elle double la poignée de main de la socket, comme les autres doublent
+ * leur middleware, et pour la même raison : éviter d'afficher un écran de
+ * recherche d'adversaire à quelqu'un dont la connexion sera refusée. Le
+ * refus qui compte reste celui du serveur.
+ *
+ * Le duel offert déjà joué mène à l'offre en le disant : `duel=epuise`
+ * change les mots de la page. On ne parle pas de la même façon à quelqu'un
+ * qui vient de perdre un duel de justesse et à quelqu'un qui n'a jamais
+ * rien vu du jeu.
+ */
+function Duellable({ children }) {
+  const { isAuthenticated, canDuel, hasAccess, duelTrial, loading } = useAuth();
+  if (loading) return <div className="spinner" style={{ marginTop: 80 }} />;
+  if (!isAuthenticated) return <Navigate to="/" replace />;
+  if (!canDuel) {
+    const motif = !hasAccess && duelTrial?.exhausted ? 'duel=epuise' : 'requis=1';
+    return <Navigate to={`/premium?${motif}`} replace />;
+  }
+  return children;
+}
+
+/*
  * Le tableau de bord n'est qu'une vue : le serveur reste seul juge et
  * répond 404 à qui n'est pas administrateur. Masquer la page ici évite
  * simplement d'afficher un écran d'erreur à un joueur curieux.
@@ -93,9 +122,11 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Landing />} />
         {/* Les quatre écrans qui font jouer — donc les quatre qui appellent
-            l'API Claude — passent par un mur. Celui du mot du jour laisse
-            entrer l'essai gratuit ; les trois autres, non : ce sont des
-            parties qui se paient en crédits. */}
+            l'API Claude — passent par un mur, et ils n'ont pas tous le même.
+            Le mot du jour laisse entrer huit chances d'essai, le duel laisse
+            entrer une partie offerte, les archives ne laissent entrer
+            personne : elles ne montrent rien que le mot du jour ne montre
+            déjà, et ne se paient donc qu'en crédits. */}
         <Route
           path="/solo"
           element={
@@ -107,17 +138,29 @@ export default function App() {
         <Route
           path="/duel"
           element={
-            <Subscribed>
+            <Duellable>
               <Matchmaking />
-            </Subscribed>
+            </Duellable>
           }
         />
+        {/*
+          L'arène n'est PAS derrière `Duellable`, et c'est délibéré : le duel
+          offert est consommé à la formation du salon, donc dès la première
+          seconde de la partie. Le garde y verrait un droit épuisé et
+          renverrait vers l'offre le joueur en train de jouer sa partie
+          gratuite — un rechargement de page suffirait à le mettre dehors et
+          à le déclarer forfait.
+          Rien n'est ouvert pour autant : l'arène demande son salon au
+          serveur dès l'affichage, et `no-room` la renvoie vers /duel, où le
+          garde reprend la main. C'est le serveur qui dit s'il y a une
+          partie, pas un drapeau lu dans le profil.
+        */}
         <Route
           path="/duel/partie"
           element={
-            <Subscribed>
+            <Protected>
               <Arena />
-            </Subscribed>
+            </Protected>
           }
         />
         <Route path="/classement" element={<Leaderboard />} />

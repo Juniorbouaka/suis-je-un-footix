@@ -52,6 +52,10 @@ billingRouter.get('/offer', (req, res) => {
     // n'ont pas de compte, donc pas de profil où lire le chiffre. Le figer
     // dans le code du client le ferait mentir le jour où TRIAL_GUESSES change.
     trialGuesses: config.game.trialGuesses,
+    // Le duel offert, servi avec elle : c'est le second argument de la page,
+    // et le plus parlant des deux — « un duel offert » se comprend sans
+    // avoir à expliquer ce qu'est une chance.
+    trialDuels: config.game.trialDuels,
     donateUrl: config.donateUrl || null,
     providers: {
       paypal: paypalEnabled,

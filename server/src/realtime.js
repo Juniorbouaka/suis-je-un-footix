@@ -2,12 +2,13 @@ import crypto from 'node:crypto';
 import { Server } from 'socket.io';
 import { config } from './config.js';
 import { db } from './db.js';
-import { authenticateSocket } from './auth.js';
+import { authenticateSocket, findUserById, hasPaidAccess } from './auth.js';
 import { evaluateProximity, feedbackFor, normalizeWord, validateGuess, describePlayer } from './claude.js';
 import { multiplayerScore, recordPvpResult, readStats } from './scoring.js';
 import { evaluatePvp } from './achievements.js';
 import { isKnownPlayer, randomWord } from './words.js';
-import { duelQuota } from './duels.js';
+import { duelQuota, suivreDuelsEnCours } from './duels.js';
+import { consumeFreeDuel, restoreFreeDuel } from './trial.js';
 import { refund, spend } from './credits.js';
 
 /* ------------------------------------------------------------------ *
@@ -254,10 +255,25 @@ function finishGame(io, room, { winnerId, reason }) {
  *
  * `cout` change selon la porte d'entrée : un crédit pour la file aléatoire,
  * deux pour celui qui invite — il offre la partie de son adversaire.
+ *
+ * `essaiCompte` dit si le duel offert peut régler cette entrée-là. Il doit
+ * valoir EXACTEMENT ce que `payerDuel` fera ensuite : laisser passer ici
+ * quelqu'un qui sera refusé là-bas, c'est former un salon, prévenir un
+ * adversaire, puis tout annuler — et l'inverse ferait refuser un joueur qui
+ * avait de quoi jouer. Les deux fonctions décrivent la même facture, elles
+ * ne peuvent pas se contredire.
  */
-function duelRefused(socket, userId, cout = config.credits.costDuel) {
+function duelRefused(socket, userId, cout = config.credits.costDuel, { essaiCompte = false } = {}) {
   const quota = duelQuota(userId);
   if (quota.balance >= cout) return false;
+  /*
+   * `active` et non `remaining` : un abonné garde un compteur d'essai
+   * intact qu'il n'utilisera jamais, puisque `payerDuel` ne l'ouvre qu'aux
+   * comptes qui n'ont rien payé. Lire `remaining` laisserait donc passer un
+   * abonné à sec, pour l'annuler à la facture — un salon formé pour rien et
+   * un adversaire dérangé pour rien.
+   */
+  if (essaiCompte && quota.free?.active) return false;
   socket.emit('duel-quota', { ...quota, needed: cout, needsCredits: true });
   return true;
 }
@@ -276,8 +292,21 @@ function duelRefused(socket, userId, cout = config.credits.costDuel) {
  *     seul chemin par lequel on peut jouer sans dépenser, et il est payé par
  *     quelqu'un — celui qui a envoyé le code.
  *
- * En cas d'échec du second débit, le premier est rendu. Un salon à moitié
- * payé n'existe pas : soit les deux paient, soit personne ne joue.
+ * Et une monnaie avant l'autre : le DUEL OFFERT règle la file, une fois par
+ * compte, avant qu'on touche au portefeuille. C'est ici et nulle part
+ * ailleurs qu'il se consomme — au moment où un adversaire existe. Le
+ * décompter à l'entrée dans la file aurait fait payer dix minutes d'attente
+ * qui n'ont fait jouer personne.
+ *
+ * L'essai ne couvre PAS l'invitation : cette facture-là paie deux sièges,
+ * dont celui d'un tiers, et un essai qui offre une partie à quelqu'un
+ * d'autre n'est plus un essai. Un compte en essai peut toujours RÉPONDRE à
+ * une invitation — c'est gratuit pour tout le monde et l'hôte a réglé.
+ *
+ * En cas d'échec du second débit, le premier est rendu, essai compris. Un
+ * salon à moitié payé n'existe pas : soit les deux paient, soit personne ne
+ * joue. Et rendre les crédits en gardant l'essai reviendrait à faire payer
+ * d'une partie gratuite un duel qui n'a jamais démarré.
  *
  * @returns {boolean} true si le duel est payé et peut démarrer.
  */
@@ -289,21 +318,38 @@ function payerDuel(io, room, { hoteId = null } = {}) {
   const factures = hoteId
     ? [{ userId: hoteId, cost: config.credits.costDuelInvite, reason: 'duel-invitation' }]
     : [
-        { userId: a, cost: config.credits.costDuel, reason: 'duel' },
-        { userId: b, cost: config.credits.costDuel, reason: 'duel' },
+        { userId: a, cost: config.credits.costDuel, reason: 'duel', essai: true },
+        { userId: b, cost: config.credits.costDuel, reason: 'duel', essai: true },
       ];
 
   const payees = [];
 
   for (const f of factures) {
+    /*
+     * L'essai d'abord, et seulement pour qui n'a rien payé. Le compte est
+     * relu par `findUserById`, qui redresse l'administrateur au passage :
+     * la base le voit non-abonné, et sans ce détour il brûlerait son duel
+     * offert sur son propre jeu au lieu de puiser dans son stock illimité.
+     */
+    if (f.essai && !hasPaidAccess(findUserById(f.userId)) && consumeFreeDuel(f.userId)) {
+      payees.push({ ...f, gratuit: true });
+      continue;
+    }
+
     const res = spend(f.userId, f.cost, f.reason, ref);
     if (res.ok) {
       payees.push(f);
       continue;
     }
 
-    // Rembourser ce qui a déjà été prélevé : le duel n'aura pas lieu.
-    for (const p of payees) refund(p.userId, p.cost, 'remboursement-duel-annule', ref);
+    /*
+     * Rendre ce qui a déjà été pris, dans la monnaie où on l'a pris : le
+     * duel n'aura pas lieu.
+     */
+    for (const p of payees) {
+      if (p.gratuit) restoreFreeDuel(p.userId);
+      else refund(p.userId, p.cost, 'remboursement-duel-annule', ref);
+    }
 
     broadcast(io, room, 'error-message', {
       error:
@@ -334,6 +380,18 @@ function cleanupRoom(room) {
  * ------------------------------------------------------------------ */
 
 export function attachRealtime(httpServer) {
+  /*
+   * Le mur de paiement de la socket doit pouvoir laisser rentrer un joueur
+   * DÉJÀ en partie — sinon un rechargement de page au milieu du duel offert
+   * vaudrait forfait, puisque l'essai est consommé dès la formation du
+   * salon. Le registre reste ici, seule la question en sort.
+   */
+  suivreDuelsEnCours((userId) => {
+    const roomId = userRoom.get(userId);
+    const room = roomId ? rooms.get(roomId) : null;
+    return Boolean(room && room.status !== 'finished');
+  });
+
   const io = new Server(httpServer, {
     cors: { origin: config.clientOrigin, credentials: true },
     path: '/socket.io',
@@ -355,7 +413,9 @@ export function attachRealtime(httpServer) {
 
     socket.on('join-matchmaking', () => {
       if (currentRoom()) return socket.emit('error-message', { error: 'Tu es déjà dans une partie.' });
-      if (duelRefused(socket, user.id)) return;
+      // La file est la seule porte que le duel offert sait payer : c'est
+      // celle où l'on ne règle que son propre siège.
+      if (duelRefused(socket, user.id, config.credits.costDuel, { essaiCompte: true })) return;
       queue = queue.filter((p) => p.userId !== user.id && io.sockets.sockets.has(p.socketId));
 
       const waiting = queue.shift();
@@ -623,7 +683,14 @@ export function attachRealtime(httpServer) {
        * moment-là, c'est éviter à l'autre d'attendre une revanche qui ne
        * viendra pas.
        */
-      if (duelRefused(socket, user.id)) {
+      /*
+       * Même facture que la file, donc même règle : `essaiCompte` doit
+       * suivre ce que `payerDuel` fera. En pratique l'essai est déjà
+       * consommé — c'est lui qui a payé la manche en cours — et la revanche
+       * se règle donc en crédits. Le dire plutôt que le supposer, c'est
+       * laisser TRIAL_DUELS valoir deux sans que ce chemin mente.
+       */
+      if (duelRefused(socket, user.id, config.credits.costDuel, { essaiCompte: true })) {
         socket.to(room.id).emit('error-message', {
           error: `${user.username} n’a plus assez de crédits pour une revanche.`,
         });

@@ -245,9 +245,21 @@ export default function Arena() {
       <PremiumModal
         open={Boolean(quota) && !isPremium}
         onClose={() => setQuota(null)}
-        titre="Plus de parties"
-        texte={`La revanche est un duel de plus : elle coûte ${quota?.needed ?? 1} partie de ton
-                stock, et il est épuisé. La formule Illimité en donne près de quatre fois plus.`}
+        titre={quota?.free?.exhausted ? 'Ton duel offert est passé' : 'Plus de parties'}
+        texte={
+          /*
+            La revanche est le premier mur que rencontre celui qui vient de
+            jouer son duel offert — et c'est le meilleur moment pour vendre,
+            juste après une partie qu'il a envie de rejouer. Lui parler d'un
+            « stock épuisé » serait parler d'un stock qu'il n'a jamais eu.
+          */
+          quota?.free?.exhausted
+            ? `C'était ta partie offerte, et la revanche en est une de plus. Chaque proposition
+               est évaluée par l'IA et se paie : la suite passe par l'abonnement, à partir de
+               2,99 € par mois.`
+            : `La revanche est un duel de plus : elle coûte ${quota?.needed ?? 1} partie de ton
+               stock, et il est épuisé. La formule Illimité en donne près de quatre fois plus.`
+        }
       />
 
       {quota && isPremium && (

@@ -5,7 +5,7 @@ import { todayUtc, puzzleNumber } from '../words.js';
 import { touch, onlineCount, peakCount } from '../presence.js';
 import { supporterIds } from '../supporters.js';
 import { currentMonth, monthlyRanking, pastChampions } from '../champions.js';
-import { trialTotal } from '../trial.js';
+import { duelTrialTotal, trialTotal } from '../trial.js';
 
 export const leaderboardRouter = Router();
 
@@ -120,6 +120,9 @@ leaderboardRouter.get('/stats/global', (req, res) => {
      * le ferait mentir le jour où TRIAL_GUESSES change.
      */
     trialGuesses: trialTotal(),
+    // Le duel offert, pour la même raison et au même endroit : l'accueil
+    // annonce les deux essais avant toute création de compte.
+    trialDuels: duelTrialTotal(),
     bestToday: best ? { username: best.username, score: best.score } : null,
   });
 });

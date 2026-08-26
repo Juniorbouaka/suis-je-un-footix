@@ -6,7 +6,8 @@ import { db } from './db.js';
 import { expireIfNeeded } from './billing.js';
 import { canUseTheme, DEFAULT_THEME } from './themes.js';
 import { isSupporter } from './supporters.js';
-import { canPlayDaily, trialState } from './trial.js';
+import { canPlayDaily, canPlayDuel, duelTrialState, trialState } from './trial.js';
+import { aUnDuelEnCours } from './duels.js';
 
 export function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
@@ -67,7 +68,7 @@ export function findUserById(id) {
       `SELECT id, username, email, avatar_url, stats_json, is_premium, is_subscriber,
               created_at, subscription_provider, subscription_id, subscription_status,
               subscription_plan, premium_until, pitch_theme,
-              trial_guesses_used, last_login_at, last_seen_at
+              trial_guesses_used, trial_duels_used, last_login_at, last_seen_at
          FROM users WHERE id = ?`
     )
     .get(id);
@@ -128,14 +129,27 @@ export function publicUser(user) {
      * Le droit d'ouvrir la partie du jour — abonnement OU essai en cours.
      *
      * Distinct de `hasAccess`, et les confondre coûterait dans les deux
-     * sens : le client ouvre l'écran de jeu sur `canPlay`, mais l'offre,
-     * les duels et les archives se décident toujours sur `hasAccess`. Un
-     * visiteur en essai n'est pas un abonné, il est en train de le devenir.
+     * sens : le client ouvre l'écran du mot du jour sur `canPlay`, l'écran
+     * de duel sur `canDuel`, et l'offre comme les archives se décident
+     * toujours sur `hasAccess`. Trois droits pour trois portes, parce que
+     * les deux essais s'épuisent séparément. Un visiteur en essai n'est pas
+     * un abonné, il est en train de le devenir.
      */
     canPlay: hasPaidAccess(user) || trialState(user).remaining > 0,
     // L'état de l'essai, pour que l'écran puisse compter à voix haute. Un
     // essai qu'on ne voit pas fondre ne donne envie de rien.
     trial: trialState(user),
+    /*
+     * Le droit d'ouvrir un DUEL — abonnement ou duel offert.
+     *
+     * Un quatrième droit, et le refus de les fondre en un seul est le même
+     * qu'entre `hasAccess` et `canPlay` : le jeu donne à essayer deux
+     * choses distinctes, un mot du jour entamé et un duel entier, et elles
+     * s'épuisent séparément. Quelqu'un qui a brûlé ses huit chances garde
+     * son duel ; quelqu'un qui a joué son duel garde ses chances.
+     */
+    canDuel: hasPaidAccess(user) || duelTrialState(user).remaining > 0,
+    duelTrial: duelTrialState(user),
     isPremium: Boolean(user.is_premium),
     plan: user.subscription_plan || null,
     isAdmin: isAdmin(user),
@@ -286,16 +300,36 @@ export function authenticateSocket(socket, next) {
   const user = findUserById(payload.sub);
   if (!user) return next(new Error('Compte introuvable.'));
   /*
-   * L'essai gratuit ne passe PAS par ici, et c'est voulu : il ouvre le mot
-   * du jour, rien d'autre. Un duel, ce sont deux fois vingt propositions et
-   * un adversaire abonné mobilisé — ce n'est pas une démonstration, c'est
-   * une partie qui se paie.
+   * Trois façons d'avoir le droit d'être ici, et l'ordre dit tout :
+   *
+   *   — l'abonnement, qui est la façon normale ;
+   *   — le duel offert, tant qu'il n'a pas servi. Le duel est ce que le jeu
+   *     a de mieux à montrer, et c'était le seul mode qu'on vendait sans
+   *     jamais le laisser voir ;
+   *   — un duel DÉJÀ EN COURS, même quand les deux premiers sont épuisés.
+   *
+   * La troisième est celle qu'on oublie, et elle est indispensable : le duel
+   * offert est consommé à la formation du salon, donc AVANT la fin de la
+   * partie. Sans elle, un joueur qui rafraîchit sa page au milieu de son
+   * unique duel gratuit se verrait refuser la reconnexion, serait déclaré
+   * forfait vingt secondes plus tard, et offrirait la victoire à son
+   * adversaire. On lui aurait fait payer son essai d'une défaite.
+   *
+   * Le droit d'ENTRER n'est pas le droit de jouer gratuitement : ce qui est
+   * dû se prélève à la formation du salon, où l'on sait enfin qu'il y a une
+   * partie. Cette porte-là ne fait qu'ouvrir.
    */
-  if (!hasPaidAccess(user)) {
+  if (!canPlayDuel(user) && !aUnDuelEnCours(user.id)) {
     // Le message est lu tel quel par le client : il doit s'afficher à un
-    // joueur, pas à un développeur.
-    const err = new Error('Les duels sont réservés aux abonnés.');
-    err.data = { needsSubscription: true };
+    // joueur, pas à un développeur. Un duel offert déjà joué et un
+    // abonnement expiré ne se racontent pas de la même façon.
+    const essai = duelTrialState(user);
+    const err = new Error(
+      essai.total
+        ? 'Ton duel offert est passé. Prends un abonnement pour continuer à jouer en duel.'
+        : 'Les duels sont réservés aux abonnés.'
+    );
+    err.data = { needsSubscription: true, duelTrialExhausted: essai.exhausted };
     return next(err);
   }
   socket.data.user = {

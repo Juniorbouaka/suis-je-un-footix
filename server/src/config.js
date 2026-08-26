@@ -144,6 +144,27 @@ export const config = {
      * Mettre 0 referme le jeu comme avant, sans toucher au code.
      */
     trialGuesses: Number(process.env.TRIAL_GUESSES || 8),
+
+    /*
+     * Le duel offert : UNE partie, une fois dans la vie d'un compte.
+     *
+     * Même raisonnement que les huit chances, appliqué à l'autre moitié du
+     * jeu. Le duel est ce qui se raconte — on ne s'abonne pas pour jouer
+     * seul, on s'abonne parce qu'un ami vous a mis une raclée — et il était
+     * jusqu'ici le seul mode que personne ne pouvait voir avant de payer.
+     *
+     * Une partie ENTIÈRE, et non huit propositions comme en solo, parce
+     * qu'un duel tronqué n'existe pas : on ne peut pas couper une partie à
+     * deux au milieu sans priver l'adversaire de la sienne. C'est le seul
+     * endroit du jeu où l'essai doit aller jusqu'au bout.
+     *
+     * Une seule, donc, et le coût est borné : vingt propositions au pire,
+     * soit ~0,08 € par compte créé. C'est le même budget de prospection que
+     * l'essai solo, et il est plafonné par-dessus par DAILY_API_BUDGET.
+     *
+     * Mettre 0 referme le duel aux abonnés, sans toucher au code.
+     */
+    trialDuels: Number(process.env.TRIAL_DUELS || 1),
     // Duel : vingt essais chacun, même chiffre qu'en solo et quel que soit
     // le forfait. C'est le seul nombre du jeu que l'argent ne change pas —
     // deux adversaires qui ne jouent pas avec le même nombre de balles ne

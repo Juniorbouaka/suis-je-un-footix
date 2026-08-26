@@ -1,5 +1,29 @@
-import { config } from './config.js';
+import { config, isAdminEmail } from './config.js';
 import { creditSummary } from './credits.js';
+import { db } from './db.js';
+import { duelTrialState } from './trial.js';
+
+/**
+ * L'état d'essai d'un compte, relu en base.
+ *
+ * Le raccourci de l'administrateur est refait ici, exactement comme dans
+ * `credits.js` : la base le voit toujours comme non-abonné, et sans cette
+ * correction l'écran de duel lui annoncerait « 1 duel offert » sur son
+ * propre jeu, avant de le décompter. Celui qui paie l'API n'essaie pas.
+ *
+ * Relu en base plutôt que reçu de l'appelant : les deux points d'entrée du
+ * module reçoivent un identifiant, pas un utilisateur, et une règle d'accès
+ * qui dépend de qui appelle est une règle qu'on oublie d'appliquer quelque
+ * part.
+ */
+function essaiDuel(userId) {
+  const u = db
+    .prepare('SELECT email, is_subscriber, is_premium, trial_duels_used FROM users WHERE id = ?')
+    .get(userId);
+
+  if (!u) return duelTrialState(null);
+  return duelTrialState(isAdminEmail(u.email) ? { ...u, is_subscriber: 1, is_premium: 1 } : u);
+}
 
 /**
  * Ce qu'un duel coûte, et ce qu'on peut encore s'offrir.
@@ -27,6 +51,7 @@ import { creditSummary } from './credits.js';
 export function duelQuota(userId) {
   const credits = creditSummary(userId);
   const solde = credits?.balance ?? 0;
+  const essai = essaiDuel(userId);
 
   return {
     /*
@@ -42,12 +67,75 @@ export function duelQuota(userId) {
     // Ce que coûte chaque façon d'entrer en duel.
     cost: config.credits.costDuel,
     inviteCost: config.credits.costDuelInvite,
-    // Ce que l'écran a besoin de savoir avant d'allumer ou d'éteindre un
-    // bouton. Répondre ici évite que chaque écran refasse la soustraction —
-    // et se trompe de tarif entre la file et l'invitation.
-    canQueue: solde >= config.credits.costDuel,
+    /*
+     * Le duel offert, tel quel : l'écran doit pouvoir annoncer « ton premier
+     * duel est offert » AVANT le clic, et « c'était le dernier gratuit »
+     * après. Un essai qu'on ne découvre qu'au moment où il s'arrête ne vend
+     * rien — il déçoit.
+     */
+    free: essai,
+    /*
+     * Ce que l'écran a besoin de savoir avant d'allumer ou d'éteindre un
+     * bouton. Répondre ici évite que chaque écran refasse la soustraction —
+     * et se trompe de tarif entre la file et l'invitation.
+     *
+     * L'essai compte pour la FILE et pour elle seule : il paie le siège de
+     * son joueur, pas celui d'un invité. Inviter reste à deux crédits, donc
+     * réservé à qui en a — sans quoi l'essai offrirait une partie à un
+     * tiers, ce qui n'est plus un essai mais un distributeur.
+     *
+     * `active` et non `remaining` : un abonné garde un compteur d'essai
+     * intact — il n'y a jamais touché — mais ce sont ses crédits qui paient
+     * ses duels, parce que `payerDuel` n'ouvre l'essai qu'aux comptes qui
+     * n'ont rien payé. Lire `remaining` ici allumerait le bouton d'un
+     * abonné à sec, refusé ensuite à la facture : une porte qui dit oui et
+     * une caisse qui dit non, c'est un salon formé pour rien.
+     */
+    canQueue: solde >= config.credits.costDuel || essai.active,
     canInvite: solde >= config.credits.costDuelInvite,
-    // Nombre de duels encore payables par la file aléatoire.
-    remaining: Math.floor(solde / Math.max(1, config.credits.costDuel)),
+    // Nombre de duels encore jouables par la file aléatoire, essai compris :
+    // c'est un nombre de parties, peu importe qui les paie.
+    remaining:
+      Math.floor(solde / Math.max(1, config.credits.costDuel)) +
+      (essai.active ? essai.remaining : 0),
   };
+}
+
+/* ------------------------------------------------------------------ *
+ *  Les duels en cours, vus de l'extérieur
+ * ------------------------------------------------------------------ */
+
+/**
+ * Le registre des salons vit dans `realtime.js`, en mémoire, et personne
+ * d'autre n'a à le connaître. Une seule question doit en sortir : « ce
+ * compte est-il en train de jouer ? »
+ *
+ * Elle sert au mur de paiement de la socket. Un joueur qui a dépensé son
+ * duel offert n'a plus le droit d'en ouvrir un — mais il a le droit de
+ * FINIR celui qu'il a commencé, et rafraîchir la page ne doit pas le faire
+ * déclarer forfait dans sa seule partie gratuite. Sans cette exception, le
+ * premier rechargement le mettrait dehors et donnerait la victoire à son
+ * adversaire : la pire démonstration possible.
+ *
+ * Le passage se fait par une fonction déposée ici plutôt que par un import
+ * direct, parce que `realtime.js` importe déjà `auth.js` : demander à
+ * `auth.js` de lire `realtime.js` refermerait le cercle. Ce module-ci ne
+ * dépend de personne, il est le point de rendez-vous naturel.
+ *
+ * Tant que rien n'est déposé, la réponse est « non » — c'est le cas des
+ * tests qui montent l'API sans serveur temps réel, et c'est la bonne
+ * réponse pour eux : sans socket, aucun duel n'est en cours.
+ */
+let salonEnCours = () => false;
+
+export function suivreDuelsEnCours(predicat) {
+  salonEnCours = typeof predicat === 'function' ? predicat : () => false;
+}
+
+export function aUnDuelEnCours(userId) {
+  try {
+    return Boolean(userId && salonEnCours(userId));
+  } catch {
+    return false;
+  }
 }

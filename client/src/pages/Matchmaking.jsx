@@ -18,6 +18,12 @@ import PremiumModal from '../components/PremiumModal.jsx';
  * C'est le seul chemin par lequel on peut jouer sans rien dépenser, et il
  * est payé par quelqu'un — autant que ce quelqu'un le sache d'avance.
  *
+ * Et une monnaie avant les deux : le DUEL OFFERT. Tant qu'il n'a pas servi,
+ * c'est lui que l'écran annonce, en gros et à la place du solde — quelqu'un
+ * qui n'a jamais joué de duel n'a que faire d'un stock à zéro, il a besoin
+ * de savoir que le premier ne lui coûte rien. Le reste de la page ne change
+ * pas : il paie la file, pas l'invitation, qui règle le siège d'un tiers.
+ *
  * Le solde est lu avant le premier clic : un bouton qui échoue vaut moins
  * qu'un bouton qui explique. Le refus, lui, reste tranché par le serveur au
  * moment de former le salon.
@@ -134,9 +140,16 @@ export default function Matchmaking() {
   const inviteUrl = code ? `${window.location.origin}/duel?code=${code}` : '';
   const coutDuel = quota?.cost ?? 1;
   const coutInvite = quota?.inviteCost ?? 2;
+  /*
+   * Le duel offert, tel que le serveur le compte. `active` et non
+   * `remaining` : un abonné a le compteur comme tout le monde et l'écran
+   * doit se taire — lui annoncer une partie offerte quand il vient d'en
+   * payer un mois serait le meilleur moyen de lui faire regretter.
+   */
+  const duelOffert = quota?.free?.active ? quota.free.remaining : 0;
   // Deux seuils, parce qu'il y a deux tarifs : on peut avoir de quoi entrer
   // dans la file sans avoir de quoi inviter.
-  const peutJouer = quota?.canQueue ?? solde >= coutDuel;
+  const peutJouer = quota?.canQueue ?? (solde >= coutDuel || duelOffert > 0);
   const peutInviter = quota?.canInvite ?? solde >= coutInvite;
   const recharge = quota?.nextRecharge
     ? new Date(quota.nextRecharge).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
@@ -144,14 +157,28 @@ export default function Matchmaking() {
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto' }}>
+      {/*
+        Deux refus, deux histoires. Celui dont le duel offert vient de passer
+        n'a pas « épuisé un stock » : il vient de jouer, il sait ce qu'il
+        achète, et lui resservir l'explication du tarif serait le faire
+        attendre devant la caisse. Celui qui paie déjà et qui arrive à zéro a
+        besoin de l'autre message — une date de recharge et une formule
+        au-dessus.
+      */}
       <PremiumModal
         open={stockAtteint}
         onClose={() => setStockAtteint(false)}
-        titre="Plus de parties"
-        texte={`Un duel, ce sont deux joueurs et jusqu'à 15 propositions chacun, toutes évaluées
-                par l'IA : il se paie comme une partie. Ton stock du mois est épuisé${
-                  recharge ? ` et se recharge le ${recharge}` : ''
-                }. La formule Illimité en donne près de quatre fois plus.`}
+        titre={quota?.free?.exhausted ? 'Ton duel offert est passé' : 'Plus de parties'}
+        texte={
+          quota?.free?.exhausted
+            ? `C'était ta partie offerte. Chaque proposition d'un duel est évaluée par l'IA et se
+               paie : la suite passe par l'abonnement, à partir de 2,99 € par mois — le joueur
+               mystère tous les jours, plus des parties pour les duels et les archives.`
+            : `Un duel, ce sont deux joueurs et jusqu'à 15 propositions chacun, toutes évaluées
+               par l'IA : il se paie comme une partie. Ton stock du mois est épuisé${
+                 recharge ? ` et se recharge le ${recharge}` : ''
+               }. La formule Illimité en donne près de quatre fois plus.`
+        }
       />
 
       <h1 style={{ fontSize: 26, marginBottom: 6 }}>Mode duel</h1>
@@ -161,20 +188,34 @@ export default function Matchmaking() {
       </p>
 
       <p className="small muted" style={{ marginBottom: 22 }}>
-        <Icon name="swords" size={13} />{' '}
-        {peutJouer ? (
+        {duelOffert > 0 ? (
           <>
-            <strong className="mono">{solde}</strong> partie{solde > 1 ? 's' : ''} en stock — un duel
-            en coûte {coutDuel}, une invitation {coutInvite} (tu offres celle de ton adversaire).
+            <Icon name="gift" size={13} />{' '}
+            <strong>
+              Ton premier duel est offert{duelOffert > 1 ? ` (${duelOffert} au total)` : ''}
+            </strong>{' '}
+            — cherche un adversaire, ça ne te coûte rien et ça ne demande aucune carte. Ensuite un
+            duel coûte {coutDuel} partie de ton stock, comme une journée d'archive.
           </>
         ) : (
           <>
-            Plus de parties en stock{recharge ? ` — recharge le ${recharge}` : ''}. Répondre à
-            l'invitation de quelqu'un d'autre, en revanche, ne te coûte rien.{' '}
-            {!isPremium && (
-              <button className="btn-icon btn-text" onClick={() => setStockAtteint(true)}>
-                Voir l’Illimité
-              </button>
+            <Icon name="swords" size={13} />{' '}
+            {peutJouer ? (
+              <>
+                <strong className="mono">{solde}</strong> partie{solde > 1 ? 's' : ''} en stock — un
+                duel en coûte {coutDuel}, une invitation {coutInvite} (tu offres celle de ton
+                adversaire).
+              </>
+            ) : (
+              <>
+                Plus de parties en stock{recharge ? ` — recharge le ${recharge}` : ''}. Répondre à
+                l'invitation de quelqu'un d'autre, en revanche, ne te coûte rien.{' '}
+                {!isPremium && (
+                  <button className="btn-icon btn-text" onClick={() => setStockAtteint(true)}>
+                    Voir l’Illimité
+                  </button>
+                )}
+              </>
             )}
           </>
         )}
@@ -207,8 +248,18 @@ export default function Matchmaking() {
           <div className="card">
             <h2 style={{ fontSize: 18, marginBottom: 6 }}>Adversaire aléatoire</h2>
             <p className="muted small" style={{ marginBottom: 16 }}>
-              On te met en relation avec un autre joueur en ligne. Chacun paie sa partie —{' '}
-              {coutDuel} de ton stock, et rien tant qu'aucun adversaire n'est trouvé.
+              On te met en relation avec un autre joueur en ligne.{' '}
+              {duelOffert > 0 ? (
+                <>
+                  Celui-ci est offert : rien ne sera décompté, et rien ne l'est tant qu'aucun
+                  adversaire n'est trouvé — attendre dans la file ne coûte jamais rien.
+                </>
+              ) : (
+                <>
+                  Chacun paie sa partie — {coutDuel} de ton stock, et rien tant qu'aucun adversaire
+                  n'est trouvé.
+                </>
+              )}
             </p>
             <button className="btn btn-block btn-lg" onClick={search} disabled={!peutJouer}>
               <Icon name="dice" size={19} /> Chercher un adversaire
@@ -221,6 +272,21 @@ export default function Matchmaking() {
               Génère un code, envoie-le : la partie démarre dès qu’il te rejoint. L'invitation
               coûte {coutInvite} parties — tu paies la tienne et celle de ton invité, qui n'a
               besoin de rien pour répondre.
+              {/*
+                Le duel offert ne paie pas cette porte-là, et le dire évite un
+                bouton gris sans explication : il règle le siège de son
+                joueur, pas celui d'un tiers. Celui qui veut jouer contre un
+                ami sans payer a l'autre chemin — se faire inviter, qui est
+                gratuit pour tout le monde.
+              */}
+              {duelOffert > 0 && (
+                <>
+                  {' '}
+                  <strong>Ton duel offert ne couvre pas l'invitation</strong> — il paie ta partie,
+                  pas celle de quelqu'un d'autre. Fais-toi inviter par ton ami : répondre ne coûte
+                  rien.
+                </>
+              )}
             </p>
 
             {mode === 'invited' ? (

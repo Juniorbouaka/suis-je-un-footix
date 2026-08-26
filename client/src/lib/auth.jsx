@@ -134,14 +134,26 @@ export function AuthProvider({ children }) {
        * Le droit d'OUVRIR la partie du jour, abonnement ou essai gratuit.
        *
        * Un troisième droit et pas un synonyme du deuxième : `hasAccess`
-       * commande l'offre, les duels et les archives, `canPlay` ne commande
-       * que la porte du mot du jour. Les confondre rouvrirait aux huit
-       * chances d'essai des parties qui se paient en crédits.
+       * commande l'offre et les archives, `canPlay` ne commande que la
+       * porte du mot du jour, et le duel a la sienne (`canDuel`). Les
+       * confondre rouvrirait aux huit chances d'essai des parties qui se
+       * paient en crédits.
        */
       canPlay: Boolean(profile?.billing?.canPlay ?? profile?.user?.canPlay),
       // Ce qui reste de l'essai. `active` dit s'il y a lieu d'en parler :
       // un abonné a un compteur comme tout le monde, l'écran doit se taire.
       trial: profile?.billing?.trial || profile?.user?.trial || null,
+      /*
+       * Le droit d'ouvrir un DUEL — abonnement ou duel offert.
+       *
+       * Un quatrième droit, et le quatrième refus de les confondre. Le jeu
+       * donne à essayer deux choses qui s'épuisent séparément : huit
+       * chances sur le mot du jour, et un duel entier. Celui qui a brûlé
+       * ses chances garde son duel, celui qui a joué son duel garde ses
+       * chances — un seul drapeau aurait fermé les deux portes d'un coup.
+       */
+      canDuel: Boolean(profile?.billing?.canDuel ?? profile?.user?.canDuel),
+      duelTrial: profile?.billing?.duelTrial || profile?.user?.duelTrial || null,
       plan: profile?.billing?.plan || null,
       planLabel: profile?.billing?.planLabel || null,
       // Le portefeuille tel que le serveur l'a renvoyé avec le profil. Les
